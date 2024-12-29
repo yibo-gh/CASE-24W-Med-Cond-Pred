@@ -1,0 +1,20 @@
+
+# SQL Dependency
+bin/
+bin
+
+# Loaded Dataset
+data/
+*.rcd
+
+# Actual dataset
+*.csv
+
+# IntelliJ
+.idea/
+
+# Py
+__pycache__/
+
+# OS X
+.DS_Store

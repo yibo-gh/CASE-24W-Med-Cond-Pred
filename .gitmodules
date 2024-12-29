@@ -1,0 +1,3 @@
+[submodule "ukbUtil"]
+	path = ukbUtil
+	url = git@github.com:yibo-gh/CASE-24W-UKB-Util.git
