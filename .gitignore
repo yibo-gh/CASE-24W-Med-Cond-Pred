@@ -6,6 +6,8 @@ bin
 # Loaded Dataset
 data/
 *.rcd
+map/
+*.pkl
 
 # Actual dataset
 *.csv
