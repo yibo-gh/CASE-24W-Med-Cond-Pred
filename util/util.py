@@ -1,6 +1,6 @@
 
 import os;
-from typing import List, Dict;
+from typing import List, Dict, Tuple;
 import pickle;
 
 
@@ -66,8 +66,51 @@ def loadIcdDrugMap(pkl: str, icdMap: str = "map/ICD/CUI2ICD10.txt", icdMedMap: s
     return __icdDrugMap[0];
 
 
+def medMatch(icd2cui: Dict[str, str], ukbMed2db: Dict[str, List[str]], tkbDisMedGT: Dict[str, List[str]],
+             icd: str, ukbMedCode: str) -> bool:
+    try:
+        print(icd2cui[icd])
+        gt: List[str] = tkbDisMedGT[icd2cui[icd]];
+        print(gt)
+        ukbMed: List[str] | None = ukbMed2db[ukbMedCode];
+        print(ukbMed)
+        if ukbMed is None:
+            return False;
+        for g in gt:
+            if ukbMed.__contains__(g):
+                return True;
+    except KeyError:
+        return False;
+    return False;
+
+
+def loadCoreMap(icd2cui: str, ukbMed2db: str, tkbDisMedGT: str) -> Tuple[Dict[str, str], Dict[str, List[str]], Dict[str, List[str]]]:
+    assert os.path.exists(icd2cui) and os.path.exists(ukbMed2db) and os.path.exists(tkbDisMedGT);
+    i2c: Dict[str, str];
+    um2: Dict[str, List[str]];
+    tdm: Dict[str, List[str]];
+
+    with open(icd2cui, "rb") as f:
+        i2c = pickle.load(f);
+    with open(ukbMed2db, "rb") as f:
+        um2 = pickle.load(f);
+    with open(tkbDisMedGT, "rb") as f:
+        tdm = pickle.load(f);
+    return i2c, um2, tdm;
+
+
+def getColNameByFieldID(id: int) -> str:
+    return f"participant.p{id:d}";
+
+
 def __test() -> None:
     print(tokenizeICD10("Z54.W2B"));
+    i2c, um2, tdb = loadCoreMap(
+        "../map/icd2cui.pkl",
+        "../map/ukb2db.pkl",
+        "../map/tkbDisMedGT.pkl"
+    );
+    print(medMatch(i2c, um2, tdb, "G20", "1141169700"))
     return;
 
 

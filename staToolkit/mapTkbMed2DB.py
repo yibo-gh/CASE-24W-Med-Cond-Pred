@@ -42,7 +42,7 @@ def __service_sttTkbDB(meds: List[str], pkl: str = "drugbank.pkl") -> Dict[str, 
     return ret;
 
 
-def __service_mapTkbMed2Db() -> None:
+def __service_mapTkbMed2Db() -> Dict[str, str]:
 
     tkb: str = "../map/TreatKB_approved_with_Finding.counter";
     ret: List[str] = __service_loadUniMed(tkb);
@@ -54,9 +54,28 @@ def __service_mapTkbMed2Db() -> None:
     for c in conv.keys():
         fi[name2code[c]] = conv[c];
     # print(fi);
-    with open("../data/tkbMedCui2Db.pkl", "wb") as f:
-        pickle.dump(fi, f);
+    return fi;
+    '''with open("../data/tkbMedCui2Db.pkl", "wb") as f:
+        pickle.dump(fi, f);'''
+
+
+def __service_mapTkbDisMedGT(tkb: str, med2db: Dict[str, str], out: str) -> Dict[str, List[str]]:
+    assert os.path.exists(tkb);
+    ret: Dict[str, List[str]] = dict();
+    with open(tkb, "r") as f:
+        lines: List[str] = f.read().split("\n")[:-1];
+    for l in lines:
+        _, mCode, _, dis, _ = l.split("|");
+        try:
+            ret[dis].append(med2db[mCode]);
+        except:
+            ret[dis] = [med2db[mCode]];
+    # print(ret);
+    with open(out, "wb") as f:
+        pickle.dump(ret, f);
+    return ret;
 
 
 if __name__ == "__main__":
-    __service_mapTkbMed2Db();
+    tkb: str = "../map/TreatKB_approved_with_Finding.counter";
+    __service_mapTkbDisMedGT(tkb, __service_mapTkbMed2Db(), "../map/tkbDisMedGT.pkl");

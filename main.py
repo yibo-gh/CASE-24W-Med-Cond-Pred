@@ -8,6 +8,58 @@ import numpy as np;
 sys.path.append("ukbUtil");
 from ukbUtil import fetchDB, loadMeta, readFile;
 
+from util.util import *;
+from obj.pt import *;
+
+
+def __service_getNotNullDates(l: List[str]) -> List[str]:
+    ret: List[str] = [];
+    for ele in l:
+        if ele != "":
+            ret.append(ele);
+    return ret;
+
+
+def __service_simpEth(l: List[str]) -> str:
+    if len(l) == 1:
+        return l[0];
+    if len(np.unique((np.array(l)))) == 1:
+        return l[0];
+    cpy = l.copy();
+    try:
+        while True:
+            cpy.remove("-1");
+    except:
+        pass;
+    try:
+        while True:
+            cpy.remove("-3");
+    except:
+        pass;
+    if len(cpy) > 1:
+        try:
+            while True:
+                cpy.remove("6");
+        except:
+            pass;
+    cpy = np.unique(np.array(cpy)).tolist();
+    if cpy == []:
+        return "-1";
+    if len(cpy) == 1:
+        return cpy[0];
+    if len(cpy) == 2:
+        c1, c2 = cpy;
+        if len(c1) == 1 and c2.startswith(c1):
+            return c2;
+        if len(c2) == 1 and c1.startswith(c2):
+            return c1;
+    superclass: List[str] = [];
+    for c in cpy:
+        superclass.append(c[0]);
+    if len(np.unique(np.array(superclass))) == 1:
+        return superclass[0];
+    return "2";
+
 
 def main() -> int:
     token: str = "MVFsNanigw5fKGJUSbXmMPHSUa7EHR5i";
@@ -17,14 +69,49 @@ def main() -> int:
                              beeline="bin/spark-3.2.3-bin-hadoop2.7/bin/beeline",
                              colCode=[31, 34, 52, 21000]);'''
 
-    i9m: Dict[str, str] = loadIcd2cui("map/ICD/CUI2ICD9.txt");
-    ixm: Dict[str, str] = loadIcd2cui("map/ICD/CUI2ICD10.txt");
-    print(i9m["41"])
-    exit(0);
     with open(f"data/1737145582028.pkl", "rb") as f:
         dt = pickle.load(f);
-    print(dt.shape);
-    print(dt.meta);
+
+    i2c, um2, tdb = loadCoreMap(
+        "map/icd2cui.pkl",
+        "map/ukb2db.pkl",
+        "map/tkbDisMedGT.pkl"
+    );
+
+    # for k in list(dt.meta.keys()):
+    #     print(k, dt.meta[k])
+
+    allDig: np.ndarray = np.concatenate(
+        (
+            dt["Participant ID"],
+            dt[getColNameByFieldID(31)][:, np.newaxis],
+            dt[getColNameByFieldID(34)][:, np.newaxis],
+            dt[getColNameByFieldID(52)][:, np.newaxis],
+            dt["Ethnic background"],
+            dt["Diagnoses - main ICD10"],
+            dt["Date of first in-patient diagnosis - main ICD10"]
+        ), axis=1);
+    # print(allDig.shape)
+    # print(allDig)
+
+    allPt: Dict[str, Pt] = dict();
+
+    for pt in allDig:
+        id: str = pt[0];
+        sex: int = int(pt[1]);
+        yob: int = int(pt[2]);
+        mob: int = int(pt[3]);
+        eth: str = __service_simpEth(__service_getNotNullDates(pt[4:8]));
+        dig: List[str] = pt[8];
+        dates: List[str] = __service_getNotNullDates(pt[9:]);
+        assert len(dig) == len(dates);
+        allPt[id] = Pt(id, PtDemo(SexAtBirth(sex), mob, yob, int(eth)));
+        for i in range(len(dig)):
+            __dig, __date = dig[i], dates[i];
+            allPt[id].newEvt(__date, EvtClass.Dig, [__dig], []);
+        # for evt in allPt[id].evtList:
+        #     print(evt.time, end=" ");
+        # print(allPt[id].vectorize())
     return 0;
 
 

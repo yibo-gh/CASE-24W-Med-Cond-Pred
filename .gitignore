@@ -9,6 +9,10 @@ data/
 map/
 *.pkl
 
+# Local data backups
+*.old
+*.cpy
+
 # Actual dataset
 *.csv
 
