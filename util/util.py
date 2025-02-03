@@ -4,11 +4,39 @@ from typing import List, Dict, Tuple;
 import pickle;
 import subprocess;
 
+import numpy as np
 
 __icdDrugMap: List[Dict[str, List[str]] | None] = [None];
 
 
-def tokenizeICD10(icdOri: str) -> int:
+def int2binVec(i: int, l: int = 0) -> np.ndarray:
+    '''
+    Small-ending encoding
+    :param i:   Target value to be converted
+    :param l:   Minimum required vector length
+    :return:    A small-ending vector embedding with 0 padding
+
+    Example:    int2binVec(23, 0) -> (1, 1, 1, 0, 1)
+    Example 2:  int2binVec(14, 6) -> (0, 1, 1, 1, 0, 0)
+    '''
+    ret: List[int] = [];
+    __tmp: int = i;
+    while __tmp > 0:
+        ret.append(__tmp % 2);
+        __tmp -= ret[-1];
+        __tmp /= 2;
+    retnp: np.ndarray = np.zeros(max(l, len(ret)), dtype=int);
+    retnp[:len(ret)] = np.array(ret);
+    return retnp;
+
+
+def tokenizeICD10(icdOri: str, freqMap: Dict[str, float]) -> np.ndarray:
+    icd: str = icdOri.replace(".", "");
+    base: np.ndarray = np.concatenate((int2binVec(ord(icd[0].upper()) - 55, 6), int2binVec(int(icd[1:3]), 7))).astype(float);
+    return np.concatenate((base, np.array([1 if len(icd) == 3 else freqMap[icd]]))).astype(float);
+
+
+def tokenizeICD10_old(icdOri: str) -> np.ndarray:
     icd: str = icdOri.replace(".", "");
     rem: str = "";
     for i in range(3, len(icd)):
@@ -132,5 +160,5 @@ def execCmd(cmd: str) -> Tuple[str, str | None]:
 
 
 if __name__ == "__main__":
-    __test();
+    print(int2binVec(14, 6));
 

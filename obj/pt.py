@@ -35,7 +35,7 @@ class Evt:
 
     def vectorize(self) -> Tuple[int, np.ndarray, np.ndarray | None]:
         if self.type == EvtClass.Dig:
-            return EvtClass.Dig.value, np.array([tokenizeICD10(c) for c in self.cont]), np.array(self.assoMed);
+            return EvtClass.Dig.value, np.concatenate(tuple([tokenizeICD10(c) for c in self.cont]), axis=1), np.array(self.assoMed);
         raise NotImplementedError;
 
 
