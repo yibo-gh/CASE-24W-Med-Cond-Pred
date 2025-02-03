@@ -48,19 +48,31 @@ def __service_loadJs(uri: str) -> Dict[str, List[str]]:
             # print(j["Text"], __service_isPosDig(j), j["ICD10CMConcepts"][0]["Code"])
             # print(j["ICD10CMConcepts"])
             ret[dbid].append(j["ICD10CMConcepts"][0]["Code"]);
-            ret[dbid].append(j["ICD10CMConcepts"][0]["Code"][:3]);
+            # ret[dbid].append(j["ICD10CMConcepts"][0]["Code"][:3]);
         __tmpUniCode: Dict[str, int] = dict();
         for c in ret[dbid]:
             __tmpUniCode[c] = 0;
         ret[dbid] = list(__tmpUniCode.keys());
         ret[dbid].sort();
         # print(dbid, ret[dbid]);
-        return ret;
+    return ret;
 
+
+def __service_conv2perDis(d: Dict[str, List[str]]) -> Dict[str, List[str]]:
+    ret: Dict[str, List[str]] = dict();
+    for k in d.keys():
+        for dis in d[k]:
+            try:
+                ret[dis];
+            except:
+                ret[dis] = [];
+            if not ret[dis].__contains__(k):
+                ret[dis].append(k);
+    return ret;
 
 if __name__ == "__main__":
-    d: Dict[str, List[str]] = __service_loadJs("DbICD");
-    with open("../map/drugbankIcd.pkl", "wb") as f:
+    d: Dict[str, List[str]] = __service_conv2perDis(__service_loadJs("DbICD"));
+    with open("../map/drugbankIcdPerDis.pkl", "wb") as f:
         pickle.dump(d, f);
 
 

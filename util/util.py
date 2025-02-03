@@ -85,11 +85,20 @@ def medMatch(icd2cui: Dict[str, str], ukbMed2db: Dict[str, List[str]], tkbDisMed
     return False;
 
 
-def loadCoreMap(icd2cui: str, ukbMed2db: str, tkbDisMedGT: str) -> Tuple[Dict[str, str], Dict[str, List[str]], Dict[str, List[str]]]:
+def loadCoreMap(icd2cui: str,
+                ukbMed2db: str,
+                tkbDisMedGT: str,
+                ukbMedTokenize: str) -> Tuple[
+    Dict[str, str],
+    Dict[str, List[str]],
+    Dict[str, List[str]],
+    Dict[str, int]
+]:
     assert os.path.exists(icd2cui) and os.path.exists(ukbMed2db) and os.path.exists(tkbDisMedGT);
     i2c: Dict[str, str];
     um2: Dict[str, List[str]];
     tdm: Dict[str, List[str]];
+    umt: Dict[str, int];
 
     with open(icd2cui, "rb") as f:
         i2c = pickle.load(f);
@@ -97,7 +106,9 @@ def loadCoreMap(icd2cui: str, ukbMed2db: str, tkbDisMedGT: str) -> Tuple[Dict[st
         um2 = pickle.load(f);
     with open(tkbDisMedGT, "rb") as f:
         tdm = pickle.load(f);
-    return i2c, um2, tdm;
+    with open(ukbMedTokenize, "rb") as f:
+        umt = pickle.load(f);
+    return i2c, um2, tdm, umt;
 
 
 def getColNameByFieldID(id: int) -> str:

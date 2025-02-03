@@ -83,7 +83,7 @@ class Pt:
         evtClass, evt, assoMed = evt.vectorize();
         return self.id, self.dem.vec, evtClass, evt, assoMed;
 
-    def vectorize(self, lim: int = 0) -> np.ndarray:
+    def vectorize(self, lim: int = 0) -> Tuple[np.ndarray, List[np.ndarray | None]]:
         subEvtVec: List[Tuple[int, np.ndarray, np.ndarray | None]] = [
             evt.vectorize() for evt in self.evtList
         ]
@@ -97,7 +97,7 @@ class Pt:
         for i in range(len(subEvtVec)):
             ret[i][1 + (len(self.dem.vectorize()))] = subEvtVec[i][0];
             ret[i][2 + (len(self.dem.vectorize())):2 + (len(self.dem.vectorize())) + len(subEvtVec[i][1])] = subEvtVec[i][1];
-        return ret;
+        return ret, [sev[2] for sev in subEvtVec];
 
 
 def __test() -> None:
