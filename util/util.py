@@ -2,6 +2,7 @@
 import os;
 from typing import List, Dict, Tuple;
 import pickle;
+import subprocess;
 
 
 __icdDrugMap: List[Dict[str, List[str]] | None] = [None];
@@ -69,11 +70,11 @@ def loadIcdDrugMap(pkl: str, icdMap: str = "map/ICD/CUI2ICD10.txt", icdMedMap: s
 def medMatch(icd2cui: Dict[str, str], ukbMed2db: Dict[str, List[str]], tkbDisMedGT: Dict[str, List[str]],
              icd: str, ukbMedCode: str) -> bool:
     try:
-        print(icd2cui[icd])
+        # print(icd2cui[icd])
         gt: List[str] = tkbDisMedGT[icd2cui[icd]];
-        print(gt)
+        # print(gt)
         ukbMed: List[str] | None = ukbMed2db[ukbMedCode];
-        print(ukbMed)
+        # print(ukbMed)
         if ukbMed is None:
             return False;
         for g in gt:
@@ -112,6 +113,11 @@ def __test() -> None:
     );
     print(medMatch(i2c, um2, tdb, "G20", "1141169700"))
     return;
+
+
+def execCmd(cmd: str) -> Tuple[str, str | None]:
+    out, err = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True).communicate();
+    return out.decode(), None if err is None else err.decode();
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ def __service_parseICD(uri: str, d: Dict[str, str] = dict()) -> Dict[str, str]:
         cui: str = iParse[0];
         iCode: str = iParse[10];
         d[iCode] = cui;
+        d[iCode.replace(".", "")] = cui;
     return d;
 
 

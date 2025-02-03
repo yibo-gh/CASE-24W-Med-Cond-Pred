@@ -80,6 +80,7 @@ def main() -> int:
 
     # for k in list(dt.meta.keys()):
     #     print(k, dt.meta[k])
+    ptMeds: np.ndarray = dt["Treatment/medication code"];
 
     allDig: np.ndarray = np.concatenate(
         (
@@ -96,7 +97,9 @@ def main() -> int:
 
     allPt: Dict[str, Pt] = dict();
 
-    for pt in allDig:
+    validIcdDict: Dict[str, int] = dict();
+    for i in range(len(allDig)):
+        pt: Pt = allDig[i];
         id: str = pt[0];
         sex: int = int(pt[1]);
         yob: int = int(pt[2]);
@@ -104,14 +107,32 @@ def main() -> int:
         eth: str = __service_simpEth(__service_getNotNullDates(pt[4:8]));
         dig: List[str] = pt[8];
         dates: List[str] = __service_getNotNullDates(pt[9:]);
+        meds: List[str] = __service_getNotNullDates(ptMeds[i].tolist());
+
         assert len(dig) == len(dates);
         allPt[id] = Pt(id, PtDemo(SexAtBirth(sex), mob, yob, int(eth)));
         for i in range(len(dig)):
             __dig, __date = dig[i], dates[i];
-            allPt[id].newEvt(__date, EvtClass.Dig, [__dig], []);
+            ptmList: List[str] = [];
+            for m in meds:
+                if medMatch(i2c, um2, tdb, __dig, m):
+                    ptmList.append(m);
+            if len(ptmList) > 0:
+                # if __dig[:3] == "I25":
+                #     print(id, __dig, ptmList)
+                try:
+                    validIcdDict[__dig[:3]] += 1;
+                except:
+                    validIcdDict[__dig[:3]] = 1;
+            allPt[id].newEvt(__date, EvtClass.Dig, [__dig], ptmList);
         # for evt in allPt[id].evtList:
         #     print(evt.time, end=" ");
         # print(allPt[id].vectorize())
+    validIcdList: List[Tuple[str, int]] = [(k, validIcdDict[k]) for k in validIcdDict.keys()];
+    validIcdList.sort(key=lambda x: x[0]);
+    validIcdList.sort(key=lambda x: x[1], reverse=True);
+    for v in validIcdList:
+        print(v)
     return 0;
 
 

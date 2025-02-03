@@ -8,6 +8,7 @@ data/
 *.rcd
 map/
 *.pkl
+DbICD/
 
 # Local data backups
 *.old
