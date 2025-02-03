@@ -13,6 +13,7 @@ DbICD/
 # Local data backups
 *.old
 *.cpy
+*.old.py
 
 # Actual dataset
 *.csv

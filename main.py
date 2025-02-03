@@ -95,7 +95,8 @@ def __service_getTrainingDt(
     y: List[List[str]] = [];
     for tpi in tarPtID:
         pt: Pt = allPt[tpi];
-        x, gt = pt.vectorize();
+        x, gt = pt.vectorize(tarICD="I20");
+        print(x[-1], gt[-1])
         X.append(x);
         y.append(gt);
     assert len(X) == len(y);
@@ -130,24 +131,30 @@ def __service_dtFlatten(X: List[np.ndarray], y: List[List[np.ndarray]]) -> Tuple
     return retX, retY, retYMask;
 
 
-def main() -> int:
-    token: str = "MVFsNanigw5fKGJUSbXmMPHSUa7EHR5i";
-    '''pref, _, dt, _ = fetchDB(dsID="record-GxF1x2QJbyfKGbP5yY9JyVZ1",
-                             keys=["ICD", "Medication", "date"],
-                             db=f"{token}__project-GxBzxGQJqvQ8XgpxffxXQf13",
-                             beeline="bin/spark-3.2.3-bin-hadoop2.7/bin/beeline",
-                             colCode=[31, 34, 52, 21000]);'''
+def __service_loadDt(tarICD: str,
+                            ukbPickle: str | None = None,
+                            dsID: str = "record-GxF1x2QJbyfKGbP5yY9JyVZ1",
+                            tarCol: List[str] = ["ICD", "Medication", "date"],
+                            extTarCode: List[int] = [31, 34, 52, 21000],
+                            beeline: str = "bin/spark-3.2.3-bin-hadoop2.7/bin/beeline",
+                            i2cUri: str = "map/icd2cui.pkl",
+                            um2Uri: str = "map/ukb2db.pkl",
+                            tdbUri: str = "map/drugbankIcdPerDis.pkl",
+                            umtUri: str = "map/ukbMedTokenize.pkl") -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    dt: UKB;
 
-    with open(f"data/1737145582028.pkl", "rb") as f:
-        dt = pickle.load(f);
+    if ukbPickle is not None and os.path.exists(ukbPickle):
+        with open(ukbPickle, "rb") as f:
+            dt = pickle.load(f);
+    else:
+        token: str = "MVFsNanigw5fKGJUSbXmMPHSUa7EHR5i";
+        _, _, dt, _ = fetchDB(dsID=dsID,
+                              keys=tarCol,
+                              db=f"{token}__project-GxBzxGQJqvQ8XgpxffxXQf13",
+                              beeline=beeline,
+                              colCode=extTarCode);
 
-    i2c, um2, tdb, umt = loadCoreMap(
-        "map/icd2cui.pkl",
-        "map/ukb2db.pkl",
-        # "map/tkbDisMedGT.pkl"
-        "map/drugbankIcdPerDis.pkl",
-        "map/ukbMedTokenize.pkl"
-    );
+    i2c, um2, tdb, umt = loadCoreMap(i2cUri, um2Uri, tdbUri, umtUri);
     tdbNew: Dict[str, List[str]] = dict();
     for k in tdb.keys():
         tdbNew[i2c[k]] = tdb[k];
@@ -216,16 +223,16 @@ def main() -> int:
     #     print(allPt[pt].id, sum([len(ml) for ml in allPt[pt].vectorize()[1]]));
     ptFilter: np.ndarray = __serviceF_filterByDrugMatch(allPt, dt);
     # print("m::170", np.sum(ptFilter))
-    icdFilter: np.ndarray = __serviceF_filterByICDwValidMed(allPt, dt, "i20");
-    # print("m::172", np.sum(icdFilter));
+    icdFilter: np.ndarray = __serviceF_filterByICDwValidMed(allPt, dt, tarICD);
     print("m::174", np.sum(ptFilter & icdFilter));
     X, y = __service_getTrainingDt(allPt, dt, ptFilter & icdFilter, umt);
-    # print(X[:8]);
-    # print(y[:8]);
-    X, y, mask = __service_dtFlatten(X, y);
-    print(X[:8]);
-    print(y[:8]);
-    print(mask[:8]);
+    return __service_dtFlatten(X, y)
+
+
+def main() -> int:
+    X: np.ndarray; y: np.ndarray; mask: np.ndarray;
+    X, y, mask = __service_loadDt(tarICD="i20", ukbPickle=f"data/1737145582028.pkl");
+    print(X.shape, y.shape, mask.shape)
     return 0;
 
 

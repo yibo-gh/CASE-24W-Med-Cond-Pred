@@ -83,7 +83,17 @@ class Pt:
         evtClass, evt, assoMed = evt.vectorize();
         return self.id, self.dem.vec, evtClass, evt, assoMed;
 
-    def vectorize(self, lim: int = 0) -> Tuple[np.ndarray, List[np.ndarray | None]]:
+    def vectorize(self, lim: int = 0, tarICD: str | None = None) -> Tuple[np.ndarray, List[np.ndarray | None]]:
+        maxLim: int = lim if lim != 0 else len(self.evtList);
+        icdCounter: int = maxLim;
+        if tarICD is not None:
+            for i in range(len(self.evtList)):
+                evt: Evt = self.evtList[i];
+                if evt.type == EvtClass.Dig and (
+                        evt.cont[0].lower().startswith(tarICD.lower()) or evt.cont[0].lower().startswith(
+                        tarICD.replace(".", "").lower())):
+                    icdCounter = i + 1;
+        maxLim = min(maxLim, icdCounter);
         subEvtVec: List[Tuple[int, np.ndarray, np.ndarray | None]] = [
             evt.vectorize() for evt in self.evtList
         ]
@@ -97,7 +107,7 @@ class Pt:
         for i in range(len(subEvtVec)):
             ret[i][1 + (len(self.dem.vectorize()))] = subEvtVec[i][0];
             ret[i][2 + (len(self.dem.vectorize())):2 + (len(self.dem.vectorize())) + len(subEvtVec[i][1])] = subEvtVec[i][1];
-        return ret, [sev[2] for sev in subEvtVec];
+        return ret[:maxLim], [sev[2] for sev in subEvtVec][:maxLim];
 
 
 def __test() -> None:
