@@ -46,7 +46,7 @@ def __service_makeFamilyStt(ukb: UKB) -> Dict[str, float]:
 def main() -> int:
     with open("../data/1737145582028.pkl", "rb") as f:
         ukb: UKB = pickle.load(f);
-    with open("../map/ukbMedFreq.pkl", "wb") as f:
+    with open("../map/ukbIcdFreq.pkl", "wb") as f:
         pickle.dump(__service_makeFamilyStt(ukb), f);
     return 0;
 

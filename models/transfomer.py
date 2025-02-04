@@ -1,37 +1,39 @@
 
+import math
+from typing import Tuple, List;
+
 from torch.utils.data import Dataset, DataLoader;
+import torch;
 import numpy as np;
 
 class PtDS(Dataset):
 
-    def __init__(self, data_dir, tokenizer, max_seq_length):
-        self.data_dir = data_dir
-        self.tokenizer = tokenizer
-        self.max_seq_length = max_seq_length
-        self.data = self._load_data()
+    xList: List[torch.Tensor];
+    yList: List[torch.Tensor];
+    mList: List[torch.Tensor];
 
-    def _load_data(self):
-        """
-        Load patient event data. Each file in the data_dir corresponds to one patient.
-        Each line in a file represents an event with its details.
-        """
-        data = []
-        for file_name in os.listdir(self.data_dir):
-            file_path = os.path.join(self.data_dir, file_name)
-            with open(file_path, 'r') as f:
-                patient_events = f.readlines()
-                data.append(patient_events)
-        return data
+    def __service_makeTensor(self, X: np.ndarray, y: np.ndarray, mask: np.ndarray, first: int, fi: int) -> Tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor
+    ]:
+        last: int = min(fi, len(y));
+        return torch.from_numpy(X[first:last]), torch.from_numpy(y[first:last]), torch.from_numpy(mask[first:last]);
 
-    def __len__(self):
-        return len(self.data)
+    def __init__(self, X: np.ndarray, y: np.ndarray, mask: np.ndarray, batch: int = 64) -> None:
+        fullBatch: int = int(math.floor(len(X) / batch));
+        self.xList = self.yList = self.mList = [];
+        for i in range(fullBatch):
+            __x, __y, __mask = self.__service_makeTensor(X, y, mask, i * batch, (i + 1) * batch);
+            self.xList.append(__x);
+            self.yList.append(__y);
+            self.mList.append(__mask);
+        if fullBatch * batch < len(X):
+            __x, __y, __mask = self.__service_makeTensor(X, y, mask, (i + 1) * batch, len(X));
+            self.xList.append(__x);
+            self.yList.append(__y);
+            self.mList.append(__mask);
 
-    def __getitem__(self, idx):
-        events = self.data[idx]
-        tokenized_events = self.tokenizer(events, truncation=True, padding='max_length', max_length=self.max_seq_length,
-                                          return_tensors="pt")
+    def __len__(self) -> int:
+        return len(self.xList)
 
-        # For demonstration, create dummy labels (medication codes)
-        labels = torch.randint(0, 100, (len(events),))  # Random medication codes
-        return tokenized_events, labels
-
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return self.xList[i], self.yList[i], self.mList[i];

@@ -68,7 +68,7 @@ def __service_makePtFilter(dt: UKB, ptd: dict[str, bool]) -> np.ndarray:
 def __serviceF_filterByDrugMatch(allPt: Dict[str, Pt], dt: UKB) -> np.ndarray:
     hasMatchDrug: Dict[str, bool] = dict();
     for pt in allPt.keys():
-        hasMatchDrug[pt] = sum([len(ml) for ml in allPt[pt].vectorize()[1]]) > 0;
+        hasMatchDrug[pt] = sum([len(ml.assoMed) for ml in allPt[pt].evtList]) > 0;
     return __service_makePtFilter(dt, hasMatchDrug)
 
 
@@ -88,15 +88,16 @@ def __serviceF_filterByICDwValidMed(allPt: Dict[str, Pt], dt: UKB, icd: str) -> 
 def __service_getTrainingDt(
         allPt: Dict[str, Pt],
         dt: UKB, filter: np.ndarray,
-        umt: Dict[str, int]
+        umt: Dict[str, int],
+        freq: Dict[str, float] = dict()
 ) -> Tuple[List[np.ndarray], List[List[str]]]:
     tarPtID: np.ndarray = dt.dt[1:, 0][filter];
     X: List[np.ndarray] = [];
     y: List[List[str]] = [];
     for tpi in tarPtID:
         pt: Pt = allPt[tpi];
-        x, gt = pt.vectorize(tarICD="I20");
-        print(x[-1], gt[-1])
+        x, gt = pt.vectorize(tarICD="I20", freq=freq);
+        # print(x[-1], gt[-1])
         X.append(x);
         y.append(gt);
     assert len(X) == len(y);
@@ -155,6 +156,9 @@ def __service_loadDt(tarICD: str,
                               colCode=extTarCode);
 
     i2c, um2, tdb, umt = loadCoreMap(i2cUri, um2Uri, tdbUri, umtUri);
+    freqMap: Dict[str, float];
+    with open("map/ukbIcdFreq.pkl", "rb") as f:
+        freqMap = pickle.load(f);
     tdbNew: Dict[str, List[str]] = dict();
     for k in tdb.keys():
         tdbNew[i2c[k]] = tdb[k];
@@ -225,7 +229,7 @@ def __service_loadDt(tarICD: str,
     # print("m::170", np.sum(ptFilter))
     icdFilter: np.ndarray = __serviceF_filterByICDwValidMed(allPt, dt, tarICD);
     print("m::174", np.sum(ptFilter & icdFilter));
-    X, y = __service_getTrainingDt(allPt, dt, ptFilter & icdFilter, umt);
+    X, y = __service_getTrainingDt(allPt, dt, ptFilter & icdFilter, umt, freq=freqMap);
     return __service_dtFlatten(X, y)
 
 
@@ -233,6 +237,9 @@ def main() -> int:
     X: np.ndarray; y: np.ndarray; mask: np.ndarray;
     X, y, mask = __service_loadDt(tarICD="i20", ukbPickle=f"data/1737145582028.pkl");
     print(X.shape, y.shape, mask.shape)
+    print(X[:8])
+    print(y[:8])
+    print(mask[:8])
     return 0;
 
 

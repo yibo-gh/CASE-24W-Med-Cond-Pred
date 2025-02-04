@@ -1,5 +1,5 @@
 
-from typing import List, Tuple;
+from typing import List, Tuple, Dict;
 from enum import Enum;
 
 import numpy as np;
@@ -33,9 +33,9 @@ class Evt:
         self.cont = cont;
         self.assoMed = medList;
 
-    def vectorize(self) -> Tuple[int, np.ndarray, np.ndarray | None]:
+    def vectorize(self, freq: Dict[str, float] = dict()) -> Tuple[int, np.ndarray, np.ndarray | None]:
         if self.type == EvtClass.Dig:
-            return EvtClass.Dig.value, np.concatenate(tuple([tokenizeICD10(c) for c in self.cont]), axis=1), np.array(self.assoMed);
+            return EvtClass.Dig.value, np.concatenate(tuple([tokenizeICD10(c, freqMap=freq) for c in self.cont])), np.array(self.assoMed);
         raise NotImplementedError;
 
 
@@ -83,7 +83,7 @@ class Pt:
         evtClass, evt, assoMed = evt.vectorize();
         return self.id, self.dem.vec, evtClass, evt, assoMed;
 
-    def vectorize(self, lim: int = 0, tarICD: str | None = None) -> Tuple[np.ndarray, List[np.ndarray | None]]:
+    def vectorize(self, lim: int = 0, tarICD: str | None = None, freq: Dict[str, float] = dict()) -> Tuple[np.ndarray, List[np.ndarray | None]]:
         maxLim: int = lim if lim != 0 else len(self.evtList);
         icdCounter: int = maxLim;
         if tarICD is not None:
@@ -95,13 +95,14 @@ class Pt:
                     icdCounter = i + 1;
         maxLim = min(maxLim, icdCounter);
         subEvtVec: List[Tuple[int, np.ndarray, np.ndarray | None]] = [
-            evt.vectorize() for evt in self.evtList
+            evt.vectorize(freq=freq) for evt in self.evtList
         ]
+        # print(subEvtVec[:8]);
         maxEvtLen: int = 0;
         for se in subEvtVec:
             if len(se[1]) > maxEvtLen:
                 maxEvtLen = len(se[1]);
-        ret: np.ndarray = np.zeros((len(subEvtVec), 1 + len(self.dem.vectorize()) + 1 + maxEvtLen), dtype=int);
+        ret: np.ndarray = np.zeros((len(subEvtVec), 1 + len(self.dem.vectorize()) + 1 + maxEvtLen), dtype=float);
         ret[:, 0] = self.id;
         ret[:, 1 : 1 + (len(self.dem.vectorize()))] = self.dem.vectorize();
         for i in range(len(subEvtVec)):

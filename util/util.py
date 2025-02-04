@@ -161,4 +161,6 @@ def execCmd(cmd: str) -> Tuple[str, str | None]:
 
 if __name__ == "__main__":
     print(int2binVec(14, 6));
+    with open("../map/ukbIcdFreq.pkl", "rb") as f:
+        print(tokenizeICD10("I20.9", pickle.load(f)));
 
