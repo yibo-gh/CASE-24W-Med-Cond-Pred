@@ -33,9 +33,11 @@ class Evt:
         self.cont = cont;
         self.assoMed = medList;
 
-    def vectorize(self, freq: Dict[str, float] = dict()) -> Tuple[int, np.ndarray, np.ndarray | None]:
+    def vectorize(self, medMap: Dict[str, int] | None = None, freq: Dict[str, float] | None = None) -> Tuple[int, np.ndarray, np.ndarray | None]:
         if self.type == EvtClass.Dig:
-            return EvtClass.Dig.value, np.concatenate(tuple([tokenizeICD10(c, freqMap=freq) for c in self.cont])), np.array(self.assoMed);
+            return self.type.value, np.concatenate(tuple([tokenizeICD10(c, freqMap=freq if freq is not None else dict()) for c in self.cont])), np.array(self.assoMed);
+        if self.type == EvtClass.Med:
+            return self.type.value, np.array([medMap[m] for m in self.cont]), None;
         raise NotImplementedError;
 
 
@@ -83,7 +85,7 @@ class Pt:
         evtClass, evt, assoMed = evt.vectorize();
         return self.id, self.dem.vec, evtClass, evt, assoMed;
 
-    def vectorize(self, lim: int = 0, tarICD: str | None = None, freq: Dict[str, float] = dict()) -> Tuple[np.ndarray, List[np.ndarray | None]]:
+    def vectorize(self, lim: int = 0, tarICD: str | None = None, medMap: Dict[str, int] | None = None, freq: Dict[str, float] | None = None) -> Tuple[np.ndarray, List[np.ndarray | None]]:
         maxLim: int = lim if lim != 0 else len(self.evtList);
         icdCounter: int = maxLim;
         if tarICD is not None:
@@ -95,7 +97,7 @@ class Pt:
                     icdCounter = i + 1;
         maxLim = min(maxLim, icdCounter);
         subEvtVec: List[Tuple[int, np.ndarray, np.ndarray | None]] = [
-            evt.vectorize(freq=freq) for evt in self.evtList
+            evt.vectorize(medMap=medMap, freq=freq) for evt in self.evtList
         ]
         # print(subEvtVec[:8]);
         maxEvtLen: int = 0;

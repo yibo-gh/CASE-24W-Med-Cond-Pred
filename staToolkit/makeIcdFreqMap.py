@@ -22,8 +22,8 @@ def __service_parseICD(icd: np.ndarray, d: Dict[str, List[str]]) -> None:
 
 
 def __service_makeFamilyStt(ukb: UKB) -> Dict[str, float]:
-    icd10: np.ndarray = ukb["Diagnoses - main ICD10"];
-    icd9: np.ndarray = ukb["Diagnoses - main ICD9"];
+    icd10: np.ndarray = ukb["Diagnoses - ICD10"];
+    icd9: np.ndarray = ukb["Diagnoses - ICD9"];
     ret: Dict[str, List[str]] = dict();
     __service_parseICD(icd10, ret);
     __service_parseICD(icd9, ret);

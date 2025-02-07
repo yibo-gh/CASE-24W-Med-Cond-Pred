@@ -1,6 +1,6 @@
 
 import sys
-from typing import List, Tuple, Dict;
+from typing import List, Tuple, Dict, Callable;
 
 import pickle;
 import numpy as np;
@@ -89,21 +89,25 @@ def __service_getTrainingDt(
         allPt: Dict[str, Pt],
         dt: UKB, filter: np.ndarray,
         umt: Dict[str, int],
-        freq: Dict[str, float] = dict()
+        medMap: Dict[str, int] | None = None,
+        freq: Dict[str, float] | None = None
 ) -> Tuple[List[np.ndarray], List[List[str]]]:
     tarPtID: np.ndarray = dt.dt[1:, 0][filter];
     X: List[np.ndarray] = [];
     y: List[List[str]] = [];
     for tpi in tarPtID:
         pt: Pt = allPt[tpi];
-        x, gt = pt.vectorize(tarICD="I20", freq=freq);
+        x, gt = pt.vectorize(tarICD="I20", medMap=medMap, freq=freq);
         # print(x[-1], gt[-1])
         X.append(x);
         y.append(gt);
     assert len(X) == len(y);
     for yi in y:
         for j in range(len(yi)):
-            yiEvt: np.ndarray = yi[j];
+            yiEvt: np.ndarray | None = yi[j];
+            if yiEvt is None:
+                yi[j] = np.array([]);
+                continue;
             for i in range(len(yiEvt)):
                 yiEvt[i] = umt[yiEvt[i]];
             yi[j] = yiEvt.astype(int);
@@ -130,6 +134,17 @@ def __service_dtFlatten(X: List[np.ndarray], y: List[List[np.ndarray]]) -> Tuple
         retYMask[yi][:len(retYL[yi])] = 1;
         retY[yi][:len(retYL[yi])] = retYL[yi];
     return retX, retY, retYMask;
+
+
+def __service_dbParseControl(dt: np.ndarray, dtype, accum: int = 0, tarLen: int = 1, dtProc: Callable | List[Callable] | None = None) -> Tuple[int, object]:
+    ret: object = dtype(dt[accum : accum + tarLen]) if tarLen > 1 else dtype(dt[accum]);
+    if dtProc is not None:
+        if not isinstance(dtProc, list):
+            ret = dtProc(ret);
+        else:
+            for fn in dtProc:
+                ret = fn(ret);
+    return accum + tarLen, ret;
 
 
 def __service_loadDt(tarICD: str,
@@ -177,35 +192,60 @@ def __service_loadDt(tarICD: str,
             dt[getColNameByFieldID(34)][:, np.newaxis],
             dt[getColNameByFieldID(52)][:, np.newaxis],
             dt["Ethnic background"],
-            dt["Diagnoses - main ICD10"],
-            dt["Date of first in-patient diagnosis - main ICD10"]
+            # dt["Diagnoses - main ICD10"],
+            # dt["Date of first in-patient diagnosis - main ICD10"]
+            dt["Diagnoses - ICD10"],  # All ICD 10
+            dt["Date of first in-patient diagnosis - ICD10"],  # Date of all ICD 10
+            dt["Diagnoses - ICD9"],  # All ICD 9
+            dt["Date of first in-patient diagnosis - ICD9"]   # Date of all ICD 9
         ), axis=1);
     # print(allDig.shape)
     # print(allDig)
+    icd10dtLen: int = len(dt.meta["Date of first in-patient diagnosis - ICD10"]);
+    icd9dtLen: int = len(dt.meta["Date of first in-patient diagnosis - ICD9"]);
 
     allPt: Dict[str, Pt] = dict();
 
     validIcdDict: Dict[str, int] = dict();
     for i in range(len(allDig)):
-        pt: Pt = allDig[i];
-        id: str = pt[0];
-        sex: int = int(pt[1]);
-        yob: int = int(pt[2]);
-        mob: int = int(pt[3]);
-        eth: str = __service_simpEth(__service_getNotNullDates(pt[4:8]));
-        dig: List[str] = pt[8];
-        dates: List[str] = __service_getNotNullDates(pt[9:]);
+        pt: np.ndarray = allDig[i];
+        __accumColNum: int; id: str;
+        __accumColNum, id = __service_dbParseControl(pt, dtype=str);
+        sex: int;
+        __accumColNum, sex = __service_dbParseControl(pt, dtype=int, accum=__accumColNum);
+        yob: int;
+        __accumColNum, yob = __service_dbParseControl(pt, dtype=int, accum=__accumColNum);
+        mob: int;
+        __accumColNum, mob = __service_dbParseControl(pt, dtype=int, accum=__accumColNum);
+        ethList: str;
+        __accumColNum, eth = __service_dbParseControl(pt, dtype=list, accum=__accumColNum, tarLen=4, dtProc=[__service_getNotNullDates, __service_simpEth]);
+        icdx: List[str];
+        __accumColNum, icdx = __service_dbParseControl(pt, dtype=list, accum=__accumColNum, dtProc=__service_getNotNullDates);
+        icdxd: List[str];
+        __accumColNum, icdxd = __service_dbParseControl(pt, dtype=list, accum=__accumColNum, tarLen=icd10dtLen, dtProc=__service_getNotNullDates);
+        icd9: List[str];
+        __accumColNum, icd9 = __service_dbParseControl(pt, dtype=list, accum=__accumColNum, dtProc=__service_getNotNullDates);
+        icd9d: List[str];
+        __accumColNum, icd9d = __service_dbParseControl(pt, dtype=list, accum=__accumColNum, tarLen=icd9dtLen, dtProc=__service_getNotNullDates);
         meds: List[str] = __service_getNotNullDates(ptMeds[i].tolist());
 
-        assert len(dig) == len(dates);
+        assert len(icdx) == len(icdxd) and len(icd9) == len(icd9d);
+
         allPt[id] = Pt(id, PtDemo(SexAtBirth(sex), mob, yob, int(eth)));
-        for i in range(len(dig)):
-            __dig, __date = dig[i], dates[i];
+        dig: List[str] = icd9 + icdx;
+        dates: List[str] = icd9d+ icdxd;
+        __ptMed: dict[str, int] = dict();
+        for m in meds:
+            __ptMed[m] = 0;
+        for j in range(len(dig)):
+            __dig, __date = dig[j], dates[j];
             ptmList: List[str] = [];
             for m in meds:
                 if medMatch(i2c, um2, tdb, __dig, m):
                     ptmList.append(m);
-            if len(ptmList) > 0:
+                    __ptMed[m] = 1;
+            # if len(ptmList) > 0:
+            if True:
                 # if __dig[:3] == "I25":
                 #     print(id, __dig, ptmList)
                 try:
@@ -216,11 +256,16 @@ def __service_loadDt(tarICD: str,
         # for evt in allPt[id].evtList:
         #     print(evt.time, end=" ");
         # print(allPt[id].vectorize())
+        noUseMed: List[str] = [];
+        for m in __ptMed.keys():
+            if __ptMed[m] == 0:
+                noUseMed.append(m);
+        allPt[id].newEvt("1970-01-01", EvtClass.Med, noUseMed, []);
     validIcdList: List[Tuple[str, int]] = [(k, validIcdDict[k]) for k in validIcdDict.keys()];
     validIcdList.sort(key=lambda x: x[0]);
     validIcdList.sort(key=lambda x: x[1], reverse=True);
-    # for v in validIcdList:
-    #     print(v);
+    for v in validIcdList:
+        print(v);
     #     break;
 
     # for pt in allPt.keys():
@@ -229,13 +274,13 @@ def __service_loadDt(tarICD: str,
     # print("m::170", np.sum(ptFilter))
     icdFilter: np.ndarray = __serviceF_filterByICDwValidMed(allPt, dt, tarICD);
     print("m::174", np.sum(ptFilter & icdFilter));
-    X, y = __service_getTrainingDt(allPt, dt, ptFilter & icdFilter, umt, freq=freqMap);
+    X, y = __service_getTrainingDt(allPt, dt, ptFilter & icdFilter, umt, medMap=umt, freq=freqMap);
     return __service_dtFlatten(X, y)
 
 
 def main() -> int:
     X: np.ndarray; y: np.ndarray; mask: np.ndarray;
-    X, y, mask = __service_loadDt(tarICD="i20", ukbPickle=f"data/1737145582028.pkl");
+    X, y, mask = __service_loadDt(tarICD="e11", ukbPickle=f"data/1737145582028.pkl");
     print(X.shape, y.shape, mask.shape)
     print(X[:8])
     print(y[:8])
