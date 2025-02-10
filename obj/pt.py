@@ -37,7 +37,8 @@ class Evt:
         if self.type == EvtClass.Dig:
             return self.type.value, np.concatenate(tuple([tokenizeICD10(c, freqMap=freq if freq is not None else dict()) for c in self.cont])), np.array(self.assoMed);
         if self.type == EvtClass.Med:
-            return self.type.value, np.array([medMap[m] for m in self.cont]), None;
+            totalMeds: int = max(list(medMap.values()));
+            return self.type.value, np.array([medMap[m] / totalMeds for m in self.cont], dtype=float), np.array([]);
         raise NotImplementedError;
 
 
@@ -85,7 +86,14 @@ class Pt:
         evtClass, evt, assoMed = evt.vectorize();
         return self.id, self.dem.vec, evtClass, evt, assoMed;
 
-    def vectorize(self, lim: int = 0, tarICD: str | None = None, medMap: Dict[str, int] | None = None, freq: Dict[str, float] | None = None) -> Tuple[np.ndarray, List[np.ndarray | None]]:
+    def vectorize(self, lim: int = 0,
+                  tarICD: str | None = None,
+                  medMap: Dict[str, int] | None = None,
+                  freq: Dict[str, float] | None = None) -> Tuple[
+        np.ndarray,
+        np.ndarray,
+        List[np.ndarray | None]
+    ]:
         maxLim: int = lim if lim != 0 else len(self.evtList);
         icdCounter: int = maxLim;
         if tarICD is not None:
@@ -96,6 +104,7 @@ class Pt:
                         tarICD.replace(".", "").lower())):
                     icdCounter = i + 1;
         maxLim = min(maxLim, icdCounter);
+        # print([evt.type for evt in self.evtList])
         subEvtVec: List[Tuple[int, np.ndarray, np.ndarray | None]] = [
             evt.vectorize(medMap=medMap, freq=freq) for evt in self.evtList
         ]
@@ -105,12 +114,14 @@ class Pt:
             if len(se[1]) > maxEvtLen:
                 maxEvtLen = len(se[1]);
         ret: np.ndarray = np.zeros((len(subEvtVec), 1 + len(self.dem.vectorize()) + 1 + maxEvtLen), dtype=float);
+        xMask: np.ndarray = np.zeros((len(subEvtVec), 1 + len(self.dem.vectorize()) + 1 + maxEvtLen), dtype=int);
         ret[:, 0] = self.id;
         ret[:, 1 : 1 + (len(self.dem.vectorize()))] = self.dem.vectorize();
         for i in range(len(subEvtVec)):
             ret[i][1 + (len(self.dem.vectorize()))] = subEvtVec[i][0];
             ret[i][2 + (len(self.dem.vectorize())):2 + (len(self.dem.vectorize())) + len(subEvtVec[i][1])] = subEvtVec[i][1];
-        return ret[:maxLim], [sev[2] for sev in subEvtVec][:maxLim];
+            xMask[i, :2 + (len(self.dem.vectorize())) + len(subEvtVec[i][1])] = 1;
+        return ret[:maxLim], xMask[:maxLim], [sev[2] for sev in subEvtVec][:maxLim];
 
 
 def __test() -> None:

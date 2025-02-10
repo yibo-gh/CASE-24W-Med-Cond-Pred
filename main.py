@@ -1,4 +1,4 @@
-
+import os.path
 import sys
 from typing import List, Tuple, Dict, Callable;
 
@@ -10,6 +10,7 @@ from ukbUtil import fetchDB, loadMeta, readFile, UKB;
 
 from util.util import *;
 from obj.pt import *;
+from models.transfomer import PtDS;
 
 
 def __service_getNotNullDates(l: List[str]) -> List[str]:
@@ -91,17 +92,23 @@ def __service_getTrainingDt(
         umt: Dict[str, int],
         medMap: Dict[str, int] | None = None,
         freq: Dict[str, float] | None = None
-) -> Tuple[List[np.ndarray], List[List[str]]]:
+) -> Tuple[
+    List[np.ndarray],
+    List[np.ndarray],
+    List[List[np.ndarray | None]]
+]:
     tarPtID: np.ndarray = dt.dt[1:, 0][filter];
     X: List[np.ndarray] = [];
-    y: List[List[str]] = [];
+    xMask: List[np.ndarray] = [];
+    y: List[List[np.ndarray | None]] = [];
     for tpi in tarPtID:
         pt: Pt = allPt[tpi];
-        x, gt = pt.vectorize(tarICD="I20", medMap=medMap, freq=freq);
+        x, xMaskLocal, gt = pt.vectorize(tarICD="E11", medMap=medMap, freq=freq);
         # print(x[-1], gt[-1])
         X.append(x);
+        xMask.append(xMaskLocal);
         y.append(gt);
-    assert len(X) == len(y);
+    assert len(X) == len(y) == len(xMask);
     for yi in y:
         for j in range(len(yi)):
             yiEvt: np.ndarray | None = yi[j];
@@ -111,17 +118,43 @@ def __service_getTrainingDt(
             for i in range(len(yiEvt)):
                 yiEvt[i] = umt[yiEvt[i]];
             yi[j] = yiEvt.astype(int);
-    return X, y;
+    return X, xMask, y;
 
 
-def __service_dtFlatten(X: List[np.ndarray], y: List[List[np.ndarray]]) -> Tuple[
+def __service_padArr(a: np.ndarray, tarSize: int, axis: int) -> np.ndarray:
+    # print("m::118", tarSize, a.shape, axis)
+    assert tarSize >= a.shape[axis];
+    retShape: List[int] = list(a.shape);
+    retShape[axis] = tarSize;
+    ret: np.ndarray = np.zeros(tuple(retShape), dtype=a.dtype);
+    ret[:a.shape[0], :a.shape[1]] = a;
+    return ret;
+
+
+def __service_padNCat(tarSize: int, a: np.ndarray, b: np.ndarray, axis: int = 0) -> np.ndarray:
+    return np.concatenate((__service_padArr(a, tarSize, axis + 1), __service_padArr(b, tarSize, axis + 1)), axis=axis);
+
+
+def __service_dtFlatten(X: List[np.ndarray], xMaskIpt: List[np.ndarray], y: List[List[np.ndarray]]) -> Tuple[
+    np.ndarray,
     np.ndarray,
     np.ndarray,
     np.ndarray
 ]:
-    retX: np.ndarray = X[0];
+    maxCol: int = 0;
+    for x in X:
+        if len(x) == 0:
+            continue;
+        thisCol: int = int(x.shape[1]);
+        if thisCol > maxCol:
+            maxCol = thisCol;
+        # print(x.shape, thisCol, maxCol)
+    retX: np.ndarray = __service_padArr(X[0], maxCol, 1);
+    xMask: np.ndarray = __service_padArr(xMaskIpt[0], maxCol, axis=1);
     for i in range(1, len(X)):
-        retX = np.concatenate((retX, X[i]));
+        retX = np.concatenate((retX, __service_padArr(X[i], maxCol, 1)));
+        xMask = np.concatenate((xMask, __service_padArr(xMaskIpt[i], maxCol, 1)));
+        assert retX.shape == xMask.shape;
 
     retYL: List[np.ndarray] = [];
     for ptY in y:
@@ -133,7 +166,7 @@ def __service_dtFlatten(X: List[np.ndarray], y: List[List[np.ndarray]]) -> Tuple
     for yi in range(len(retYL)):
         retYMask[yi][:len(retYL[yi])] = 1;
         retY[yi][:len(retYL[yi])] = retYL[yi];
-    return retX, retY, retYMask;
+    return retX, xMask, retY, retYMask;
 
 
 def __service_dbParseControl(dt: np.ndarray, dtype, accum: int = 0, tarLen: int = 1, dtProc: Callable | List[Callable] | None = None) -> Tuple[int, object]:
@@ -156,7 +189,9 @@ def __service_loadDt(tarICD: str,
                             i2cUri: str = "map/icd2cui.pkl",
                             um2Uri: str = "map/ukb2db.pkl",
                             tdbUri: str = "map/drugbankIcdPerDis.pkl",
-                            umtUri: str = "map/ukbMedTokenize.pkl") -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+                            umtUri: str = "map/ukbMedTokenize.pkl") -> Tuple[
+    np.ndarray, np.ndarray, np.ndarray, np.ndarray
+]:
     dt: UKB;
 
     if ukbPickle is not None and os.path.exists(ukbPickle):
@@ -265,26 +300,43 @@ def __service_loadDt(tarICD: str,
     validIcdList.sort(key=lambda x: x[0]);
     validIcdList.sort(key=lambda x: x[1], reverse=True);
     for v in validIcdList:
-        print(v);
+        if v[0] == "E11":
+            print(v);
     #     break;
 
     # for pt in allPt.keys():
-    #     print(allPt[pt].id, sum([len(ml) for ml in allPt[pt].vectorize()[1]]));
+    #     print(allPt[pt].id, sum([len(ml) for ml in allPt[pt].vectorize()[1]]));ve
     ptFilter: np.ndarray = __serviceF_filterByDrugMatch(allPt, dt);
     # print("m::170", np.sum(ptFilter))
     icdFilter: np.ndarray = __serviceF_filterByICDwValidMed(allPt, dt, tarICD);
     print("m::174", np.sum(ptFilter & icdFilter));
-    X, y = __service_getTrainingDt(allPt, dt, ptFilter & icdFilter, umt, medMap=umt, freq=freqMap);
-    return __service_dtFlatten(X, y)
+    X, xMask, y = __service_getTrainingDt(allPt, dt, ptFilter & icdFilter, umt, medMap=umt, freq=freqMap);
+    return __service_dtFlatten(X, xMask, y);
+
+
+def __service_loadDtByICD(icd: str, ukbPkl: str) -> PtDS:
+    tarF: str = f"data/{icd}.pkl";
+    if os.path.exists(tarF):
+        with open(tarF, "rb") as f:
+            return pickle.load(f);
+    X: np.ndarray;
+    xMask: np.ndarray;
+    y: np.ndarray;
+    mask: np.ndarray;
+    X, xMask, y, mask = __service_loadDt(tarICD=icd, ukbPickle=ukbPkl);
+    # print(X.shape, xMask.shape, y.shape, mask.shape)
+    # print(X[:4])
+    # print(y[:4])
+    # print(mask[:4])
+    ret: PtDS = PtDS(X, xMask, y, mask);
+    with open(tarF, "wb") as f:
+        pickle.dump(ret, f);
+    return ret;
 
 
 def main() -> int:
-    X: np.ndarray; y: np.ndarray; mask: np.ndarray;
-    X, y, mask = __service_loadDt(tarICD="e11", ukbPickle=f"data/1737145582028.pkl");
-    print(X.shape, y.shape, mask.shape)
-    print(X[:8])
-    print(y[:8])
-    print(mask[:8])
+    ptds: PtDS = __service_loadDtByICD("e11", f"data/1737145582028.pkl");
+    print(ptds.x.shape, ptds.xm.shape, ptds.y.shape, ptds.ym.shape);
     return 0;
 
 
