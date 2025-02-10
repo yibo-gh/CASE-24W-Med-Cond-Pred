@@ -98,7 +98,7 @@ def loadIcdDrugMap(pkl: str, icdMap: str = "map/ICD/CUI2ICD10.txt", icdMedMap: s
 def medMatch(icd2cui: Dict[str, str], ukbMed2db: Dict[str, List[str]], tkbDisMedGT: Dict[str, List[str]],
              icd: str, ukbMedCode: str) -> bool:
     try:
-        # print(icd2cui[icd])
+        print("util::101", icd, icd2cui[icd], tkbDisMedGT[icd2cui[icd]])
         gt: List[str] = tkbDisMedGT[icd2cui[icd]];
         # print(gt)
         ukbMed: List[str] | None = ukbMed2db[ukbMedCode];

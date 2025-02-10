@@ -4,6 +4,8 @@ from typing import Tuple, List, Dict;
 from torch.utils.data import Dataset, DataLoader;
 import torch;
 import numpy as np;
+import torch.nn as nn;
+from transformers import BertModel, BertConfig;
 
 class PtDS(Dataset):
 
@@ -55,3 +57,17 @@ class PtDS(Dataset):
             raise TypeError;
 
         return self.x[__ptEntry], self.xm[__ptEntry], self.y[__ptEntry], self.ym[__ptEntry];
+
+
+class MedicationTransformer(nn.Module):
+    def __init__(self, embedding_dim, num_classes):
+        super(MedicationTransformer, self).__init__()
+        self.bert_config = BertConfig(hidden_size=embedding_dim, num_hidden_layers=4, num_attention_heads=8,
+                                      intermediate_size=512)
+        self.bert = BertModel(self.bert_config)
+        self.classifier = nn.Linear(embedding_dim, num_classes)
+
+    def forward(self, input_ids, attention_mask):
+        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        cls_output = outputs.pooler_output  # [CLS] token representation
+        return self.classifier(cls_output)

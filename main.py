@@ -69,7 +69,16 @@ def __service_makePtFilter(dt: UKB, ptd: dict[str, bool]) -> np.ndarray:
 def __serviceF_filterByDrugMatch(allPt: Dict[str, Pt], dt: UKB) -> np.ndarray:
     hasMatchDrug: Dict[str, bool] = dict();
     for pt in allPt.keys():
-        hasMatchDrug[pt] = sum([len(ml.assoMed) for ml in allPt[pt].evtList]) > 0;
+        hasMatchDrug[pt] = False;
+        for et in allPt[pt].evtList:
+            # print("m::74", pt, et.time, et.type, et.cont, et.assoMed);
+            if et.type == EvtClass.Dig and et.cont[0][:4] == "E11":
+                print(et.assoMed);
+            if (et.type == EvtClass.Dig and len(et.assoMed) > 0) or (et.type == EvtClass.Med and not et.time == "1970-01-01" and len(et.cont) > 0):
+                hasMatchDrug[pt] = True;
+                break;
+        # hasMatchDrug[pt] = sum([len(ml.assoMed) for ml in allPt[pt].evtList]) > 0;
+    # print(hasMatchDrug)
     return __service_makePtFilter(dt, hasMatchDrug)
 
 
@@ -88,7 +97,8 @@ def __serviceF_filterByICDwValidMed(allPt: Dict[str, Pt], dt: UKB, icd: str) -> 
 
 def __service_getTrainingDt(
         allPt: Dict[str, Pt],
-        dt: UKB, filter: np.ndarray,
+        dt: UKB,
+        filter: np.ndarray,
         umt: Dict[str, int],
         medMap: Dict[str, int] | None = None,
         freq: Dict[str, float] | None = None
@@ -149,6 +159,7 @@ def __service_dtFlatten(X: List[np.ndarray], xMaskIpt: List[np.ndarray], y: List
         if thisCol > maxCol:
             maxCol = thisCol;
         # print(x.shape, thisCol, maxCol)
+    print("m::152", len(X))
     retX: np.ndarray = __service_padArr(X[0], maxCol, 1);
     xMask: np.ndarray = __service_padArr(xMaskIpt[0], maxCol, axis=1);
     for i in range(1, len(X)):
@@ -287,7 +298,13 @@ def __service_loadDt(tarICD: str,
                     validIcdDict[__dig[:3]] += 1;
                 except:
                     validIcdDict[__dig[:3]] = 1;
-            allPt[id].newEvt(__date, EvtClass.Dig, [__dig], ptmList);
+            if __dig[:len(tarICD)].lower() == tarICD:
+                # print("m::292")
+                allPt[id].newEvt(__date, EvtClass.Dig, [__dig], ptmList);
+            else:
+                # print("m::295")
+                allPt[id].newEvt(__date, EvtClass.Dig, [__dig], []);
+                allPt[id].newEvt(__date, EvtClass.Med, ptmList, []);
         # for evt in allPt[id].evtList:
         #     print(evt.time, end=" ");
         # print(allPt[id].vectorize())
@@ -309,7 +326,7 @@ def __service_loadDt(tarICD: str,
     ptFilter: np.ndarray = __serviceF_filterByDrugMatch(allPt, dt);
     # print("m::170", np.sum(ptFilter))
     icdFilter: np.ndarray = __serviceF_filterByICDwValidMed(allPt, dt, tarICD);
-    print("m::174", np.sum(ptFilter & icdFilter));
+    # print("m::174", np.sum(ptFilter & icdFilter));
     X, xMask, y = __service_getTrainingDt(allPt, dt, ptFilter & icdFilter, umt, medMap=umt, freq=freqMap);
     return __service_dtFlatten(X, xMask, y);
 
@@ -324,19 +341,19 @@ def __service_loadDtByICD(icd: str, ukbPkl: str) -> PtDS:
     y: np.ndarray;
     mask: np.ndarray;
     X, xMask, y, mask = __service_loadDt(tarICD=icd, ukbPickle=ukbPkl);
-    # print(X.shape, xMask.shape, y.shape, mask.shape)
-    # print(X[:4])
-    # print(y[:4])
-    # print(mask[:4])
     ret: PtDS = PtDS(X, xMask, y, mask);
-    with open(tarF, "wb") as f:
-        pickle.dump(ret, f);
+    # with open(tarF, "wb") as f:
+    #     pickle.dump(ret, f);
     return ret;
 
 
 def main() -> int:
     ptds: PtDS = __service_loadDtByICD("e11", f"data/1737145582028.pkl");
     print(ptds.x.shape, ptds.xm.shape, ptds.y.shape, ptds.ym.shape);
+    print(ptds.x[:4])
+    print(ptds.xm[:4])
+    print(ptds.y[:4])
+    print(ptds.ym[:4])
     return 0;
 
 

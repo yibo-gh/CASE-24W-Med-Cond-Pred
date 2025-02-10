@@ -27,19 +27,19 @@ def __service_makeFamilyStt(ukb: UKB) -> Dict[str, float]:
     ret: Dict[str, List[str]] = dict();
     __service_parseICD(icd10, ret);
     __service_parseICD(icd9, ret);
-    icdUniStt: Dict[str, int] = dict();
-    icdUniFCStt: Dict[str, int] = dict();
-    for k in ret.keys():
-        icdUniStt[k] = len(ret[k]);
-        for c in ret[k]:
-            try:
-                icdUniFCStt[c] += 1;
-            except:
-                icdUniFCStt[c] = 1;
+
     ret2: Dict[str, float] = dict();
-    for k in icdUniFCStt.keys():
-        ret2[k] = icdUniFCStt[k] / icdUniStt[k[:3]];
-        assert ret2[k] <= 1;
+    epsilon: float = 1e-2;
+    for k in ret.keys():
+        icdList: List[str] = ret[k];
+        if len(icdList) == 1:
+            ret2[icdList[0]] = 0;
+            continue;
+        for i in range(len(icdList)):
+            __icd: str = icdList[i];
+            ret2[__icd] = epsilon + (1 - 2 * epsilon) * i / (len(icdList) - 1);
+
+    print(ret2);
     return ret2;
 
 
