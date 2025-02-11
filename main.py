@@ -73,7 +73,7 @@ def __serviceF_filterByDrugMatch(allPt: Dict[str, Pt], dt: UKB) -> np.ndarray:
         for et in allPt[pt].evtList:
             # print("m::74", pt, et.time, et.type, et.cont, et.assoMed);
             if et.type == EvtClass.Dig and et.cont[0][:4] == "E11":
-                print(et.assoMed);
+                print("m::76", et.assoMed);
             if (et.type == EvtClass.Dig and len(et.assoMed) > 0) or (et.type == EvtClass.Med and not et.time == "1970-01-01" and len(et.cont) > 0):
                 hasMatchDrug[pt] = True;
                 break;
@@ -125,8 +125,8 @@ def __service_getTrainingDt(
             if yiEvt is None:
                 yi[j] = np.array([]);
                 continue;
-            for i in range(len(yiEvt)):
-                yiEvt[i] = umt[yiEvt[i]];
+            # for i in range(len(yiEvt)):
+            #     yiEvt[i] = umt[yiEvt[i]];
             yi[j] = yiEvt.astype(int);
     return X, xMask, y;
 
@@ -191,6 +191,14 @@ def __service_dbParseControl(dt: np.ndarray, dtype, accum: int = 0, tarLen: int 
     return accum + tarLen, ret;
 
 
+def __service_getMedIdx(medPerIcdDict: Dict[str, List[str]], icd: str, tar: str) -> int:
+    medList: List[str] = medPerIcdDict[icd];
+    for i in range(len(medList)):
+        if medList[i] == tar:
+            return i;
+    raise FileNotFoundError;
+
+
 def __service_loadDt(tarICD: str,
                             ukbPickle: str | None = None,
                             dsID: str = "record-GxF1x2QJbyfKGbP5yY9JyVZ1",
@@ -200,10 +208,18 @@ def __service_loadDt(tarICD: str,
                             i2cUri: str = "map/icd2cui.pkl",
                             um2Uri: str = "map/ukb2db.pkl",
                             tdbUri: str = "map/drugbankIcdPerDis.pkl",
-                            umtUri: str = "map/ukbMedTokenize.pkl") -> Tuple[
-    np.ndarray, np.ndarray, np.ndarray, np.ndarray
+                            umtUri: str = "map/ukbMedTokenize.pkl",
+                            medPerIcdPkl: str | None = None
+                     ) -> Tuple[
+    np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, List[str]]
 ]:
     dt: UKB;
+    medPerIcdDict: Dict[str, List[str]];
+    if medPerIcdPkl is None:
+        medPerIcdDict = dict();
+    else:
+        with open(medPerIcdPkl, "rb") as f:
+            medPerIcdDict = pickle.load(f);
 
     if ukbPickle is not None and os.path.exists(ukbPickle):
         with open(ukbPickle, "rb") as f:
@@ -218,6 +234,7 @@ def __service_loadDt(tarICD: str,
 
     i2c, um2, tdb, umt = loadCoreMap(i2cUri, um2Uri, tdbUri, umtUri);
     freqMap: Dict[str, float];
+
     with open("map/ukbIcdFreq.pkl", "rb") as f:
         freqMap = pickle.load(f);
     tdbNew: Dict[str, List[str]] = dict();
@@ -290,6 +307,11 @@ def __service_loadDt(tarICD: str,
                 if medMatch(i2c, um2, tdb, __dig, m):
                     ptmList.append(m);
                     __ptMed[m] = 1;
+                    if medPerIcdPkl is None:
+                        try:
+                            medPerIcdDict[__dig].append(m);
+                        except KeyError:
+                            medPerIcdDict[__dig] = [m];
             # if len(ptmList) > 0:
             if True:
                 # if __dig[:3] == "I25":
@@ -300,6 +322,8 @@ def __service_loadDt(tarICD: str,
                     validIcdDict[__dig[:3]] = 1;
             if __dig[:len(tarICD)].lower() == tarICD:
                 # print("m::292")
+                for i in range(len(ptmList)):
+                    ptmList[i] = __service_getMedIdx(medPerIcdDict, __dig, ptmList[i]);
                 allPt[id].newEvt(__date, EvtClass.Dig, [__dig], ptmList);
             else:
                 # print("m::295")
@@ -324,14 +348,14 @@ def __service_loadDt(tarICD: str,
     # for pt in allPt.keys():
     #     print(allPt[pt].id, sum([len(ml) for ml in allPt[pt].vectorize()[1]]));ve
     ptFilter: np.ndarray = __serviceF_filterByDrugMatch(allPt, dt);
-    # print("m::170", np.sum(ptFilter))
+    print("m::170", np.sum(ptFilter))
     icdFilter: np.ndarray = __serviceF_filterByICDwValidMed(allPt, dt, tarICD);
-    # print("m::174", np.sum(ptFilter & icdFilter));
+    print("m::174", np.sum(ptFilter & icdFilter));
     X, xMask, y = __service_getTrainingDt(allPt, dt, ptFilter & icdFilter, umt, medMap=umt, freq=freqMap);
-    return __service_dtFlatten(X, xMask, y);
+    X, xMask, y, yMask = __service_dtFlatten(X, xMask, y);
+    return X, xMask, y, yMask, medPerIcdDict;
 
-
-def __service_loadDtByICD(icd: str, ukbPkl: str) -> PtDS:
+def __service_loadDtByICD(icd: str, ukbPkl: str, medPerIcdPkl: str) -> PtDS:
     tarF: str = f"data/{icd}.pkl";
     if os.path.exists(tarF):
         with open(tarF, "rb") as f:
@@ -340,15 +364,19 @@ def __service_loadDtByICD(icd: str, ukbPkl: str) -> PtDS:
     xMask: np.ndarray;
     y: np.ndarray;
     mask: np.ndarray;
-    X, xMask, y, mask = __service_loadDt(tarICD=icd, ukbPickle=ukbPkl);
+    medPerIcdDict: Dict[str, List[str]];
+    X, xMask, y, mask, medPerIcdDict = __service_loadDt(tarICD=icd, ukbPickle=ukbPkl, medPerIcdPkl=medPerIcdPkl if os.path.exists(medPerIcdPkl) else None);
+    if not os.path.exists(medPerIcdPkl):
+        with open(medPerIcdPkl, "wb") as f:
+            pickle.dump(medPerIcdDict, f);
     ret: PtDS = PtDS(X, xMask, y, mask);
-    # with open(tarF, "wb") as f:
-    #     pickle.dump(ret, f);
+    with open(tarF, "wb") as f:
+        pickle.dump(ret, f);
     return ret;
 
 
 def main() -> int:
-    ptds: PtDS = __service_loadDtByICD("e11", f"data/1737145582028.pkl");
+    ptds: PtDS = __service_loadDtByICD("e11", f"data/1737145582028.pkl", "map/medPerIcd.pkl");
     print(ptds.x.shape, ptds.xm.shape, ptds.y.shape, ptds.ym.shape);
     print(ptds.x[:4])
     print(ptds.xm[:4])
