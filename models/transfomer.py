@@ -59,15 +59,82 @@ class PtDS(Dataset):
         return self.x[__ptEntry], self.xm[__ptEntry], self.y[__ptEntry], self.ym[__ptEntry];
 
 
-class MedicationTransformer(nn.Module):
-    def __init__(self, embedding_dim, num_classes):
-        super(MedicationTransformer, self).__init__()
-        self.bert_config = BertConfig(hidden_size=embedding_dim, num_hidden_layers=4, num_attention_heads=8,
-                                      intermediate_size=512)
-        self.bert = BertModel(self.bert_config)
-        self.classifier = nn.Linear(embedding_dim, num_classes)
+class MedTrans(nn.Module):
+    def __init__(self,
+                 input_dim: int,
+                 output_dim: int,
+                 d_model: int,
+                 nhead: int,
+                 num_layers: int,
+                 maxVecSize: int = 128,
+                 dropout: float=0.1) -> None:
+        super().__init__();
 
-    def forward(self, input_ids, attention_mask):
-        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
-        cls_output = outputs.pooler_output  # [CLS] token representation
-        return self.classifier(cls_output)
+        self.inDim: int = input_dim;
+        self.outDim: int = output_dim;
+        self.dModel: int = d_model;
+        self.nhead: int = nhead;
+        self.numLayers: int = num_layers;
+        self.maxVec: int = maxVecSize;
+        self.dropout: float = dropout;
+
+        self.linear_proj = nn.Linear(input_dim, d_model);
+        self.positional_encoding = nn.Parameter(torch.zeros(maxVecSize, d_model));  # 假设最多支持 500 个序列长度
+        self.transformer = nn.Transformer(
+            d_model=d_model, nhead=nhead, num_encoder_layers=num_layers,
+            num_decoder_layers=num_layers, dropout=dropout, batch_first=True
+        );
+        self.fc = nn.Linear(d_model, output_dim);
+
+    def forward(self, src: torch.Tensor, tgt: torch.Tensor, src_mask: torch.Tensor, tgt_mask: torch.Tensor) -> torch.Tensor:
+        src_emb = self.linear_proj(src) + self.positional_encoding[:src.size(1)]
+        tgt_emb = self.linear_proj(tgt) + self.positional_encoding[:tgt.size(1)]
+
+        transformer_output = self.transformer(
+            src_emb, tgt_emb, src_key_padding_mask=src_mask, tgt_key_padding_mask=tgt_mask
+        )
+
+        output = self.fc(transformer_output)
+        return output
+
+
+def train(model: nn.Module,
+          X: torch.Tensor, xm: torch.Tensor,
+          y: torch.Tensor, ym: torch.Tensor,
+          lossFn: nn.Module, opt: torch.optim.optimizer) -> float:
+    loss = lossFn(model(X, xm, y, ym).view(-1, model.outDim), y.view(-1));
+    loss.backward();
+    opt.step();
+    return loss.item();
+
+
+def evaluate(model: nn.Module,
+             X: torch.Tensor, xm: torch.Tensor,
+             y: torch.Tensor, ym: torch.Tensor,
+             loss_fn: nn.Module) -> float:
+    model.eval();
+    with torch.no_grad():
+        output = model(X, y, xm, ym);
+        loss = loss_fn(output.view(-1, model.fc.out_features), y.view(-1));
+    return loss.item();
+
+
+def iter(model: nn.Module,
+         trainDs: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+         testDs: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+         loss_fn: nn.Module,
+         opt: torch.optim.optimizer,
+         epoch: int) -> None:
+    for i in range(epoch):
+        x, xm, y, ym = trainDs;
+        trainLoss: float = train(model, x, xm, y, ym, loss_fn, opt);
+        x, xm, y, ym = testDs;
+        valLoss: float = evaluate(model, x, xm, y, ym, loss_fn);
+        print(f"Epoch {i + 1}/{epoch} - Train Loss: {trainLoss:.4f}, Validation Loss: {valLoss:.4f}");
+
+
+def __service_sampleTrain() -> None:
+    model: MedTrans = MedTrans(input_dim, output_dim, d_model, nhead, num_layers)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+
