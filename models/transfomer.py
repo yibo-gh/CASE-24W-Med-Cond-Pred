@@ -1,7 +1,7 @@
 
 from typing import Tuple, List, Dict;
 
-from torch.utils.data import Dataset, DataLoader;
+from torch.utils.data import Dataset;
 import torch;
 import numpy as np;
 import torch.nn as nn;
@@ -87,29 +87,32 @@ class MedTrans(nn.Module):
 
         self.linear_proj = nn.Linear(input_dim, d_model);
         self.positional_encoding = nn.Parameter(torch.zeros(maxVecSize, d_model));
-        self.transformer = nn.Transformer(
-            d_model=d_model, nhead=nhead, num_encoder_layers=num_layers,
-            num_decoder_layers=num_layers, dropout=dropout, batch_first=True
-        );
+        # self.transformer = nn.Transformer(
+        #     d_model=d_model, nhead=nhead, num_encoder_layers=num_layers,
+        #     num_decoder_layers=num_layers, dropout=dropout, batch_first=True
+        # );
+        self.transformer_encoder = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dropout=dropout),
+            num_layers=num_layers
+        )
         self.fc = nn.Linear(d_model, output_dim);
 
-    def forward(self, src: torch.Tensor, tgt: torch.Tensor, src_mask: torch.Tensor, tgt_mask: torch.Tensor) -> torch.Tensor:
-        src_emb = self.linear_proj(src) + self.positional_encoding[:src.size(1)]
-        tgt_emb = self.linear_proj(tgt) + self.positional_encoding[:tgt.size(1)]
-
-        transformer_output = self.transformer(
-            src_emb, tgt_emb, src_key_padding_mask=src_mask, tgt_key_padding_mask=tgt_mask
-        )
-
-        output = self.fc(transformer_output)
+    def forward(self, x: torch.Tensor, xm: torch.Tensor, vecSelector: torch.Tensor) -> torch.Tensor:
+        assert x.size(1) == self.dModel;
+        x_emb = self.linear_proj(x) + self.positional_encoding[:, :self.dModel]
+        transformer_output = self.transformer_encoder(x_emb, mask=xm);
+        output = self.fc(transformer_output[vecSelector]);
         return output
 
 
 def train(model: nn.Module,
           X: torch.Tensor, xm: torch.Tensor,
           y: torch.Tensor, ym: torch.Tensor,
-          lossFn: nn.Module, opt: torch.optim.Optimizer) -> float:
-    loss = lossFn(model(X, xm, y, ym).view(-1, model.outDim), y.view(-1));
+          lossFn: nn.Module, opt: torch.optim.Optimizer,
+          dev: torch.device) -> float:
+
+    res: torch.Tensor = model(X.to(dev), xm.to(dev), y.to(dev), ym.to(dev));
+    loss = lossFn(res.view(-1, model.outDim), y.view(-1));
     loss.backward();
     opt.step();
     return loss.item();
@@ -118,30 +121,78 @@ def train(model: nn.Module,
 def evaluate(model: nn.Module,
              X: torch.Tensor, xm: torch.Tensor,
              y: torch.Tensor, ym: torch.Tensor,
-             loss_fn: nn.Module) -> float:
+             loss_fn: nn.Module,
+             dev: torch.device) -> float:
     model.eval();
     with torch.no_grad():
-        output = model(X, y, xm, ym);
+        output = model(X.to(dev), y.to(dev), xm.to(dev), ym.to(dev));
         loss = loss_fn(output.view(-1, model.fc.out_features), y.view(-1));
     return loss.item();
 
 
+def __service_prepDt4training(dt: torch.Tensor, maxVec: int, mask: bool = False) -> torch.Tensor:
+    # print(dt.shape)
+    ret: torch.Tensor = torch.zeros((maxVec, dt.size(1)) if not mask else maxVec, dtype=torch.float32);
+    ret[:len(dt)] = dt;
+    return ret;
+
+
+def __service_flattenMask(dt: torch.Tensor) -> torch.Tensor:
+    return torch.ones(len(dt));
+
+
+def __service_batching(ds: PtDS, maxVec: int) -> List[np.ndarray]:
+    ret: List[List[int]] = [];
+    ptVecSize: List[int] = [len(ds[i][0]) for i in range(len(ds.pidList))];
+    left: int = 0;
+    while left < len(ptVecSize):
+        right: int = left + 1;
+        while right < len(ptVecSize) and sum(ptVecSize[left:right]) <= maxVec:
+            # print("t::147", left, right, sum(ptVecSize[left:right]))
+            right += 1;
+        ret.append([i for i in range(left, right - 1)]);
+        left = right - 1;
+        if right == len(ptVecSize):
+            left = len(ptVecSize) + 1;
+    return [ds.getPtRows(r) for r in ret];
+
+
 def iter(model: nn.Module,
-         trainDs: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
-         testDs: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+         trainDs: PtDS,
+         testDs: PtDS,
          loss_fn: nn.Module,
          opt: torch.optim.Optimizer,
-         epoch: int) -> None:
+         epoch: int,
+         maxVec: int,
+         dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")) -> None:
+
+    print("t::163 Batching training set")
+    tBatch: List[np.ndarray] = __service_batching(trainDs, maxVec);
+    print("t::163 Batching testing set")
+    vBatch: List[np.ndarray] = __service_batching(testDs, maxVec);
+    print("t::167 Batching complete")
+    # print(tBatch[0])
+
     for i in range(epoch):
-        x, xm, y, ym = trainDs;
-        trainLoss: float = train(model, x, xm, y, ym, loss_fn, opt);
-        x, xm, y, ym = testDs;
-        valLoss: float = evaluate(model, x, xm, y, ym, loss_fn);
-        print(f"Epoch {i + 1}/{epoch} - Train Loss: {trainLoss:.4f}, Validation Loss: {valLoss:.4f}");
+        print(f"t::168 training {i + 1:4d}/{epoch}");
+        trainLoss: float = 0;
+        valLoss: float = 0;
 
+        for b in tBatch:
+            # print("t::171", b)
+            trainLoss += train(model,
+                               __service_prepDt4training(trainDs.x[torch.from_numpy(b)], maxVec),
+                               __service_prepDt4training(__service_flattenMask(trainDs.xm)[torch.from_numpy(b)], maxVec, mask=True),
+                               __service_prepDt4training(trainDs.y[torch.from_numpy(b)], maxVec),
+                               __service_prepDt4training(__service_flattenMask(trainDs.ym)[torch.from_numpy(b)], maxVec, mask=True),
+                               loss_fn, opt, dev=dev);
 
-def __service_sampleTrain() -> None:
-    model: MedTrans = MedTrans(input_dim, output_dim, d_model, nhead, num_layers)
-    criterion = nn.CrossEntropyLoss();
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9);
+        for b in vBatch:
+            valLoss += evaluate(model,
+                                __service_prepDt4training(testDs.x[torch.from_numpy(b)], maxVec),
+                                __service_prepDt4training(__service_flattenMask(testDs.xm)[torch.from_numpy(b)], maxVec, mask=True),
+                                __service_prepDt4training(testDs.y[torch.from_numpy(b)], maxVec),
+                                __service_prepDt4training(__service_flattenMask(testDs.ym)[torch.from_numpy(b)], maxVec, mask=True),
+                                  loss_fn, dev=dev);
+        print(f"Epoch {i + 1:4d}/{epoch} - Train Loss: {trainLoss:.4f}, Validation Loss: {valLoss:.4f}");
 

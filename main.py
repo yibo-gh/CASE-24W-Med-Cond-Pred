@@ -1,3 +1,4 @@
+
 import os.path
 import sys
 from typing import List, Tuple, Dict, Callable;
@@ -11,7 +12,7 @@ from ukbUtil import fetchDB, loadMeta, readFile, UKB;
 
 from util.util import *;
 from obj.pt import *;
-from models.transfomer import PtDS;
+from models.transfomer import PtDS, iter, MedTrans;
 
 
 def __service_getNotNullDates(l: List[str]) -> List[str]:
@@ -391,30 +392,72 @@ def __service_splitTrainTest(dt: PtDS, rate: float = .8) -> Tuple[PtDS, PtDS]:
     testSet: torch.Tensor = torch.from_numpy(allIdx[testSet]);
 
     (tx, txm, ty, tym), (vx, vxm, vy, vym) = (
-        dt.x[torch.from_numpy(dt.getPtRows(allIdx[trainSet]))],
-        dt.xm[torch.from_numpy(dt.getPtRows(allIdx[trainSet]))],
-        dt.y[torch.from_numpy(dt.getPtRows(allIdx[trainSet]))],
-        dt.ym[torch.from_numpy(dt.getPtRows(allIdx[trainSet]))]
+        dt.x[torch.from_numpy(dt.getPtRows(allIdx[trainSet]))].to(torch.float32),
+        dt.xm[torch.from_numpy(dt.getPtRows(allIdx[trainSet]))].to(torch.float32),
+        dt.y[torch.from_numpy(dt.getPtRows(allIdx[trainSet]))].to(torch.float32),
+        dt.ym[torch.from_numpy(dt.getPtRows(allIdx[trainSet]))].to(torch.float32)
     ), (
-        dt.x[torch.from_numpy(dt.getPtRows(allIdx[testSet]))],
-        dt.xm[torch.from_numpy(dt.getPtRows(allIdx[testSet]))],
-        dt.y[torch.from_numpy(dt.getPtRows(allIdx[testSet]))],
-        dt.ym[torch.from_numpy(dt.getPtRows(allIdx[testSet]))]
+        dt.x[torch.from_numpy(dt.getPtRows(allIdx[testSet]))].to(torch.float32),
+        dt.xm[torch.from_numpy(dt.getPtRows(allIdx[testSet]))].to(torch.float32),
+        dt.y[torch.from_numpy(dt.getPtRows(allIdx[testSet]))].to(torch.float32),
+        dt.ym[torch.from_numpy(dt.getPtRows(allIdx[testSet]))].to(torch.float32)
     )
     return PtDS(tx, txm, ty, tym), PtDS(vx, vxm, vy, vym);
 
 
-def main() -> int:
-    ptds: PtDS = __service_loadDtByICD("e11", f"data/1737145582028.pkl", "map/medPerIcd.pkl");
-    print(ptds.x.shape, ptds.xm.shape, ptds.y.shape, ptds.ym.shape);
-    # print(ptds.x[:4])
+def __service_getIcdRecMedCt(tarICD: str, recDrugMap: str) -> int:
+    assert os.path.exists(recDrugMap);
+    with open(recDrugMap, "rb") as f:
+        d: Dict[str, List[str]] = pickle.load(f);
+    __tmpD: Dict[str, int] = dict();
+    for k in d.keys():
+        if k.lower()[:len(tarICD)] == tarICD.lower():
+            for m in d[k]:
+                __tmpD[m] = 0;
+    return len(__tmpD.keys());
+
+
+def __service_privateTrain(ukbPkl: str,
+                           mpiPkl: str,
+                           tarICD: str = "e11",
+                           nhead: int = 4,
+                           hiddenLayers: int = 512,
+                           maxVec: int = 128) -> int:
+    assert os.path.exists(ukbPkl) and os.path.exists(mpiPkl);
+    ptds: PtDS = __service_loadDtByICD(tarICD, ukbPkl, mpiPkl);
+    # print(ptds.x.shape, ptds.xm.shape, ptds.y.shape, ptds.ym.shape);
+    # print(ptds.x[:6])
     # print(ptds.xm[:4])
     # print(ptds.y[:4])
     # print(ptds.ym[:4])
     # print(ptds[:4]);
+    __recIcdMedCount: int = __service_getIcdRecMedCt(tarICD, "map/drugbankIcdPerDis.pkl");
+    tds: PtDS; vds: PtDS;
     tds, vds = __service_splitTrainTest(ptds);
-    print(len(tds.pidList));
-    print(len(vds.pidList));
+    # print(len(tds.pidList), len(vds.pidList));
+    model: MedTrans = MedTrans(
+        tds.x.shape[1],
+        __recIcdMedCount,
+        (int(__recIcdMedCount / nhead) + (1 if __recIcdMedCount % nhead != 0 else 0)) * nhead,
+        nhead,
+        hiddenLayers,
+        maxVecSize=maxVec
+    );
+    lossFn: torch.nn.Module = torch.nn.CrossEntropyLoss();
+    opt: torch.optim.Optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9);
+    dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu");
+    model.to(dev);
+    iter(model,
+         tds, vds,
+         lossFn, opt,
+         maxVec=maxVec,
+         epoch=500,
+         dev=dev);
+    return 0;
+
+
+def main() -> int:
+    __service_privateTrain(ukbPkl=f"data/1737145582028.pkl", mpiPkl="map/medPerIcd.pkl", maxVec=512);
     return 0;
 
 
