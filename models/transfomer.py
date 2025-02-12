@@ -15,13 +15,17 @@ class PtDS(Dataset):
     pidEntryMap: Dict[int, List[int]];
     pidList: List[int];
 
-    def __init__(self, X: np.ndarray, xMask: np.ndarray, y: np.ndarray, mask: np.ndarray) -> None:
+    def __init__(self,
+                 X: np.ndarray | torch.Tensor,
+                 xMask: np.ndarray | torch.Tensor,
+                 y: np.ndarray | torch.Tensor,
+                 mask: np.ndarray | torch.Tensor) -> None:
         assert len(X) == len(y) == len(mask) and X.shape == xMask.shape and y.shape == mask.shape;
         assert y.shape == mask.shape;
-        self.x = torch.from_numpy(X);
-        self.xm = torch.from_numpy(xMask);
-        self.y = torch.from_numpy(y);
-        self.ym = torch.from_numpy(mask);
+        self.x = torch.from_numpy(X) if isinstance(X, np.ndarray) else X;
+        self.xm = torch.from_numpy(xMask) if isinstance(xMask, np.ndarray) else xMask;
+        self.y = torch.from_numpy(y) if isinstance(y, np.ndarray) else y;
+        self.ym = torch.from_numpy(mask) if isinstance(mask, np.ndarray) else mask;
         self.pidEntryMap = dict();
 
         for i in range(len(X)):
@@ -39,10 +43,10 @@ class PtDS(Dataset):
     def getPtListLen(self) -> int:
         return len(self.pidList);
 
-    def getPtRows(self, idx: int | List[int] | slice) -> np.ndarray:
+    def getPtRows(self, idx: int | List[int] | np.ndarray | slice) -> np.ndarray:
         if isinstance(idx, int):
             return np.array(self.pidEntryMap[self.pidList[idx]]);
-        elif isinstance(idx, list):
+        elif isinstance(idx, list) or isinstance(idx, np.ndarray):
             __tmpEntry: List[int] = [];
             for i in idx:
                 __tmpEntry += self.pidEntryMap[self.pidList[i]];

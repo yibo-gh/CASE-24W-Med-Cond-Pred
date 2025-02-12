@@ -376,12 +376,7 @@ def __service_loadDtByICD(icd: str, ukbPkl: str, medPerIcdPkl: str) -> PtDS:
     return ret;
 
 
-def __service_splitTrainTest(dt: PtDS, rate: float = .8) -> Tuple[
-    Tuple[
-        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
-    ], Tuple[
-        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
-    ]]:
+def __service_splitTrainTest(dt: PtDS, rate: float = .8) -> Tuple[PtDS, PtDS]:
     randRow: np.ndarray = np.random.choice(
         dt.getPtListLen() - 1, size=int(dt.getPtListLen() * rate), replace=False
     );
@@ -395,7 +390,18 @@ def __service_splitTrainTest(dt: PtDS, rate: float = .8) -> Tuple[
     trainSet: torch.Tensor = torch.from_numpy(allIdx[trainSet]);
     testSet: torch.Tensor = torch.from_numpy(allIdx[testSet]);
 
-    return (dt.x[trainSet], dt.xm[trainSet], dt.y[trainSet], dt.ym[trainSet]), (dt.x[testSet], dt.xm[testSet], dt.y[testSet], dt.ym[testSet])
+    (tx, txm, ty, tym), (vx, vxm, vy, vym) = (
+        dt.x[torch.from_numpy(dt.getPtRows(allIdx[trainSet]))],
+        dt.xm[torch.from_numpy(dt.getPtRows(allIdx[trainSet]))],
+        dt.y[torch.from_numpy(dt.getPtRows(allIdx[trainSet]))],
+        dt.ym[torch.from_numpy(dt.getPtRows(allIdx[trainSet]))]
+    ), (
+        dt.x[torch.from_numpy(dt.getPtRows(allIdx[testSet]))],
+        dt.xm[torch.from_numpy(dt.getPtRows(allIdx[testSet]))],
+        dt.y[torch.from_numpy(dt.getPtRows(allIdx[testSet]))],
+        dt.ym[torch.from_numpy(dt.getPtRows(allIdx[testSet]))]
+    )
+    return PtDS(tx, txm, ty, tym), PtDS(vx, vxm, vy, vym);
 
 
 def main() -> int:
@@ -406,9 +412,9 @@ def main() -> int:
     # print(ptds.y[:4])
     # print(ptds.ym[:4])
     # print(ptds[:4]);
-    (tx, txm, ty, tym), (vx, vxm, vy, vym) = __service_splitTrainTest(ptds);
-    print(tx.shape, txm.shape, ty.shape, tym.shape);
-    print(vx.shape, vxm.shape, vy.shape, vym.shape);
+    tds, vds = __service_splitTrainTest(ptds);
+    print(len(tds.pidList));
+    print(len(vds.pidList));
     return 0;
 
 
