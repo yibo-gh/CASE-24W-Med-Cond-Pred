@@ -5,7 +5,6 @@ from torch.utils.data import Dataset, DataLoader;
 import torch;
 import numpy as np;
 import torch.nn as nn;
-from transformers import BertModel, BertConfig;
 
 class PtDS(Dataset):
 
@@ -35,27 +34,31 @@ class PtDS(Dataset):
         self.pidList = list(self.pidEntryMap.keys());
 
     def __len__(self) -> int:
-        return len(self.pidList)
+        return len(self.pidList);
 
-    def __getitem__(self, idx: int | List[int] | slice) -> Tuple[
-        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
-    ]:
-        __ptEntry: torch.Tensor;
+    def getPtListLen(self) -> int:
+        return len(self.pidList);
+
+    def getPtRows(self, idx: int | List[int] | slice) -> np.ndarray:
         if isinstance(idx, int):
-            __ptEntry = torch.from_numpy(np.array(self.pidEntryMap[self.pidList[idx]]));
+            return np.array(self.pidEntryMap[self.pidList[idx]]);
         elif isinstance(idx, list):
             __tmpEntry: List[int] = [];
             for i in idx:
                 __tmpEntry += self.pidEntryMap[self.pidList[i]];
-            __ptEntry = torch.from_numpy(np.array(__tmpEntry));
+            return np.array(__tmpEntry);
         elif isinstance(idx, slice):
             __tmpEntry: List[int] = [];
             for i in range(*idx.indices(len(self.pidList))):
                 __tmpEntry += self.pidEntryMap[self.pidList[i]];
-            __ptEntry = torch.from_numpy(np.array(__tmpEntry));
+            return np.array(__tmpEntry);
         else:
             raise TypeError;
 
+    def __getitem__(self, idx: int | List[int] | slice) -> Tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+    ]:
+        __ptEntry: torch.Tensor = torch.from_numpy(self.getPtRows(idx));
         return self.x[__ptEntry], self.xm[__ptEntry], self.y[__ptEntry], self.ym[__ptEntry];
 
 
@@ -79,7 +82,7 @@ class MedTrans(nn.Module):
         self.dropout: float = dropout;
 
         self.linear_proj = nn.Linear(input_dim, d_model);
-        self.positional_encoding = nn.Parameter(torch.zeros(maxVecSize, d_model));  # 假设最多支持 500 个序列长度
+        self.positional_encoding = nn.Parameter(torch.zeros(maxVecSize, d_model));
         self.transformer = nn.Transformer(
             d_model=d_model, nhead=nhead, num_encoder_layers=num_layers,
             num_decoder_layers=num_layers, dropout=dropout, batch_first=True
@@ -101,7 +104,7 @@ class MedTrans(nn.Module):
 def train(model: nn.Module,
           X: torch.Tensor, xm: torch.Tensor,
           y: torch.Tensor, ym: torch.Tensor,
-          lossFn: nn.Module, opt: torch.optim.optimizer) -> float:
+          lossFn: nn.Module, opt: torch.optim.Optimizer) -> float:
     loss = lossFn(model(X, xm, y, ym).view(-1, model.outDim), y.view(-1));
     loss.backward();
     opt.step();
@@ -123,7 +126,7 @@ def iter(model: nn.Module,
          trainDs: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
          testDs: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
          loss_fn: nn.Module,
-         opt: torch.optim.optimizer,
+         opt: torch.optim.Optimizer,
          epoch: int) -> None:
     for i in range(epoch):
         x, xm, y, ym = trainDs;
@@ -135,6 +138,6 @@ def iter(model: nn.Module,
 
 def __service_sampleTrain() -> None:
     model: MedTrans = MedTrans(input_dim, output_dim, d_model, nhead, num_layers)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    criterion = nn.CrossEntropyLoss();
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9);
 

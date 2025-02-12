@@ -4,6 +4,7 @@ from typing import List, Tuple, Dict, Callable;
 
 import pickle;
 import numpy as np;
+import torch
 
 sys.path.append("ukbUtil");
 from ukbUtil import fetchDB, loadMeta, readFile, UKB;
@@ -375,13 +376,39 @@ def __service_loadDtByICD(icd: str, ukbPkl: str, medPerIcdPkl: str) -> PtDS:
     return ret;
 
 
+def __service_splitTrainTest(dt: PtDS, rate: float = .8) -> Tuple[
+    Tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+    ], Tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+    ]]:
+    randRow: np.ndarray = np.random.choice(
+        dt.getPtListLen() - 1, size=int(dt.getPtListLen() * rate), replace=False
+    );
+
+    allIdx: np.ndarray = np.array([i for i in range(dt.getPtListLen())], dtype=int);
+
+    trainSet: np.ndarray = np.array([False for _ in range(dt.getPtListLen())], dtype=bool);
+    trainSet[randRow] = True;
+    testSet: np.ndarray = trainSet != True;
+
+    trainSet: torch.Tensor = torch.from_numpy(allIdx[trainSet]);
+    testSet: torch.Tensor = torch.from_numpy(allIdx[testSet]);
+
+    return (dt.x[trainSet], dt.xm[trainSet], dt.y[trainSet], dt.ym[trainSet]), (dt.x[testSet], dt.xm[testSet], dt.y[testSet], dt.ym[testSet])
+
+
 def main() -> int:
     ptds: PtDS = __service_loadDtByICD("e11", f"data/1737145582028.pkl", "map/medPerIcd.pkl");
     print(ptds.x.shape, ptds.xm.shape, ptds.y.shape, ptds.ym.shape);
-    print(ptds.x[:4])
-    print(ptds.xm[:4])
-    print(ptds.y[:4])
-    print(ptds.ym[:4])
+    # print(ptds.x[:4])
+    # print(ptds.xm[:4])
+    # print(ptds.y[:4])
+    # print(ptds.ym[:4])
+    # print(ptds[:4]);
+    (tx, txm, ty, tym), (vx, vxm, vy, vym) = __service_splitTrainTest(ptds);
+    print(tx.shape, txm.shape, ty.shape, tym.shape);
+    print(vx.shape, vxm.shape, vy.shape, vym.shape);
     return 0;
 
 
