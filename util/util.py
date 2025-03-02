@@ -15,7 +15,7 @@ def int2binVec(i: int, l: int = 0) -> np.ndarray:
     :param i:   Target value to be converted
     :param l:   Minimum required vector length
     :return:    A small-ending vector embedding with 0 padding
-
+int2binVec
     Example:    int2binVec(23, 0) -> (1, 1, 1, 0, 1)
     Example 2:  int2binVec(14, 6) -> (0, 1, 1, 1, 0, 0)
     '''

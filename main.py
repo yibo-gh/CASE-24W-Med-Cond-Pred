@@ -12,7 +12,8 @@ from ukbUtil import fetchDB, loadMeta, readFile, UKB;
 
 from util.util import *;
 from obj.pt import *;
-from models.transfomer import PtDS, iter, MedTrans;
+from models.transfomer import PtDS, iter;
+from models.transformerVanilla import MedTrans;
 
 
 def __service_getNotNullDates(l: List[str]) -> List[str]:
@@ -120,6 +121,7 @@ def __service_getTrainingDt(
         X.append(x);
         xMask.append(xMaskLocal);
         y.append(gt);
+        # print("m::123", max([np.max(g) for g in gt]));
     assert len(X) == len(y) == len(xMask);
     for yi in y:
         for j in range(len(yi)):
@@ -147,7 +149,9 @@ def __service_padNCat(tarSize: int, a: np.ndarray, b: np.ndarray, axis: int = 0)
     return np.concatenate((__service_padArr(a, tarSize, axis + 1), __service_padArr(b, tarSize, axis + 1)), axis=axis);
 
 
-def __service_dtFlatten(X: List[np.ndarray], xMaskIpt: List[np.ndarray], y: List[List[np.ndarray]]) -> Tuple[
+def __service_dtFlatten(X: List[np.ndarray],
+                        xMaskIpt: List[np.ndarray],
+                        y: List[List[np.ndarray]]) -> Tuple[
     np.ndarray,
     np.ndarray,
     np.ndarray,
@@ -179,7 +183,25 @@ def __service_dtFlatten(X: List[np.ndarray], xMaskIpt: List[np.ndarray], y: List
     for yi in range(len(retYL)):
         retYMask[yi][:len(retYL[yi])] = 1;
         retY[yi][:len(retYL[yi])] = retYL[yi];
+        # print("m:187", min(retYL[yi]), max(retYL[yi]));
     return retX, xMask, retY, retYMask;
+
+    if not oneHot:
+        return retX, xMask, retY, retYMask;
+
+    retYoh = np.zeros((len(retX), tarIcdMaxRecMed), dtype=int);
+    retYMoh = np.zeros(len(retX), dtype=int);
+
+    print("m::191", np.max(retY), tarIcdMaxRecMed);
+    for i in range(len(retY)):
+        print("m::193", np.sum(retYMask[i] == 1))
+        print("m::195", retY[i])
+        print("m::196", np.sum(np.array([retY[i][retYMask[i] == 1]])));
+        print("m::197", len(retYoh[i]));
+        print("m::198", retYoh[i][retY[i][retYMask[i] == 1]].shape);
+        retYoh[i][retY[i][retYMask[i] == 1]] = 1;
+        retYMoh[i] = min(1, np.sum(retYMask[i]));
+    return retX, xMask, retYoh, retYMoh;
 
 
 def __service_dbParseControl(dt: np.ndarray, dtype, accum: int = 0, tarLen: int = 1, dtProc: Callable | List[Callable] | None = None) -> Tuple[int, object]:
@@ -213,15 +235,16 @@ def __service_loadDt(tarICD: str,
                             umtUri: str = "map/ukbMedTokenize.pkl",
                             medPerIcdPkl: str | None = None
                      ) -> Tuple[
-    np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, List[str]]
+    np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, List[str]], Dict[str, List[str]]
 ]:
     dt: UKB;
     medPerIcdDict: Dict[str, List[str]];
+    d2: Dict[str, List[str]] | None = None;
     if medPerIcdPkl is None:
         medPerIcdDict = dict();
     else:
         with open(medPerIcdPkl, "rb") as f:
-            medPerIcdDict = pickle.load(f);
+            medPerIcdDict, d2 = pickle.load(f);
 
     if ukbPickle is not None and os.path.exists(ukbPickle):
         with open(ukbPickle, "rb") as f:
@@ -311,9 +334,10 @@ def __service_loadDt(tarICD: str,
                     __ptMed[m] = 1;
                     if medPerIcdPkl is None:
                         try:
-                            medPerIcdDict[__dig].append(m);
+                            if not medPerIcdDict[__dig[:3]].__contains__(m):
+                                medPerIcdDict[__dig[:3]].append(m);
                         except KeyError:
-                            medPerIcdDict[__dig] = [m];
+                            medPerIcdDict[__dig[:3]] = [m];
             # if len(ptmList) > 0:
             if True:
                 # if __dig[:3] == "I25":
@@ -324,8 +348,8 @@ def __service_loadDt(tarICD: str,
                     validIcdDict[__dig[:3]] = 1;
             if __dig[:len(tarICD)].lower() == tarICD:
                 # print("m::292")
-                for i in range(len(ptmList)):
-                    ptmList[i] = __service_getMedIdx(medPerIcdDict, __dig, ptmList[i]);
+                # for i in range(len(ptmList)):
+                #     ptmList[i] = __service_getMedIdx(medPerIcdDict, __dig[:3], ptmList[i]);
                 allPt[id].newEvt(__date, EvtClass.Dig, [__dig], ptmList);
             else:
                 # print("m::295")
@@ -355,26 +379,66 @@ def __service_loadDt(tarICD: str,
     print("m::174", np.sum(ptFilter & icdFilter));
     X, xMask, y = __service_getTrainingDt(allPt, dt, ptFilter & icdFilter, umt, medMap=umt, freq=freqMap);
     X, xMask, y, yMask = __service_dtFlatten(X, xMask, y);
-    return X, xMask, y, yMask, medPerIcdDict;
+    print(f"m::381", yMask.shape)
+    with open("allPt.pkl", "wb") as f:
+        pickle.dump(allPt, f);
+    return X, xMask, y, yMask, medPerIcdDict, d2 if d2 is not None else __service_contParentIcdMedCount(medPerIcdDict);
 
-def __service_loadDtByICD(icd: str, ukbPkl: str, medPerIcdPkl: str) -> PtDS:
+
+def __service_contParentIcdMedCount(mpid: Dict[str, List[str]]) -> Dict[str, List[str]]:
+    ret: Dict[str, List[str]] = dict();
+    for k in mpid.keys():
+        try:
+            ret[k[:3]] += mpid[k];
+        except:
+            ret[k[:3]] = mpid[k];
+    for k in ret.keys():
+        ret[k] = np.unique(np.array(ret[k], dtype=str)).tolist();
+    return ret;
+
+
+def __service_simplifyY(y: np.ndarray, yMask: np.ndarray, recMedList: List[str], onehot: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+    __d: Dict[int, int] = dict();
+    for i in range(len(recMedList)):
+        __d[int(recMedList[i])] = i;
+    yRet: np.ndarray = np.zeros((len(y), len(recMedList)), dtype=int);
+    ymRet: np.ndarray = np.zeros(len(y), dtype=int);
+    for i in range(len(y)):
+        if np.sum(yMask[i]) < 1:
+            continue;
+        if onehot:
+            yRet[i][np.array([__d[re] for re in y[i][yMask[i] == 1]])] = 1;
+            # print("m::412", yRet[i]);
+        else:
+            raise NotImplementedError;
+        ymRet[i] = 1;
+    return yRet, ymRet;
+
+
+def __service_loadDtByICD(icd: str, ukbPkl: str, medPerIcdPkl: str) -> Tuple[PtDS, Dict[str, List[str]], Dict[str, List[str]]]:
     tarF: str = f"data/{icd}.pkl";
-    if os.path.exists(tarF):
+    if os.path.exists(tarF) and os.path.exists(medPerIcdPkl):
         with open(tarF, "rb") as f:
-            return pickle.load(f);
+            ds: PtDS = pickle.load(f);
+        with open(medPerIcdPkl, "rb") as f:
+            d1, d2 = pickle.load(f);
+        return ds, d1, d2;
     X: np.ndarray;
     xMask: np.ndarray;
     y: np.ndarray;
     mask: np.ndarray;
     medPerIcdDict: Dict[str, List[str]];
-    X, xMask, y, mask, medPerIcdDict = __service_loadDt(tarICD=icd, ukbPickle=ukbPkl, medPerIcdPkl=medPerIcdPkl if os.path.exists(medPerIcdPkl) else None);
+    parIcdMedCount: Dict[str, List[str]];
+    X, xMask, y, mask, medPerIcdDict, parIcdMedCount = __service_loadDt(tarICD=icd, ukbPickle=ukbPkl, medPerIcdPkl=medPerIcdPkl if os.path.exists(medPerIcdPkl) else None);
+    # print(y)
     if not os.path.exists(medPerIcdPkl):
         with open(medPerIcdPkl, "wb") as f:
-            pickle.dump(medPerIcdDict, f);
+            pickle.dump((medPerIcdDict, parIcdMedCount), f);
+    y, mask = __service_simplifyY(y, mask, parIcdMedCount[icd[:3].upper()], onehot=True);
     ret: PtDS = PtDS(X, xMask, y, mask);
     with open(tarF, "wb") as f:
         pickle.dump(ret, f);
-    return ret;
+    return ret, medPerIcdDict, parIcdMedCount;
 
 
 def __service_splitTrainTest(dt: PtDS, rate: float = .8) -> Tuple[PtDS, PtDS]:
@@ -423,41 +487,46 @@ def __service_privateTrain(ukbPkl: str,
                            nhead: int = 4,
                            hiddenLayers: int = 512,
                            maxVec: int = 128) -> int:
-    assert os.path.exists(ukbPkl) and os.path.exists(mpiPkl);
-    ptds: PtDS = __service_loadDtByICD(tarICD, ukbPkl, mpiPkl);
+    assert os.path.exists(ukbPkl);
+    ptds: PtDS; medPerIcdDict: Dict[str, List[str]]; parIcdMedCount: Dict[str, List[str]];
+    ptds, medPerIcdDict, parIcdMedCount = __service_loadDtByICD(tarICD, ukbPkl, mpiPkl);
+    __recIcdMedCount: int = len(parIcdMedCount[tarICD[:3].upper()]);
     # print(ptds.x.shape, ptds.xm.shape, ptds.y.shape, ptds.ym.shape);
     # print(ptds.x[:6])
     # print(ptds.xm[:4])
     # print(ptds.y[:4])
     # print(ptds.ym[:4])
     # print(ptds[:4]);
-    __recIcdMedCount: int = __service_getIcdRecMedCt(tarICD, "map/drugbankIcdPerDis.pkl");
     tds: PtDS; vds: PtDS;
     tds, vds = __service_splitTrainTest(ptds);
     # print(len(tds.pidList), len(vds.pidList));
+    maxXCol: int = ptds.x.shape[1];
+    dModel: int = (int(maxXCol / nhead) + (1 if maxXCol % nhead != 0 else 0)) * nhead;
     model: MedTrans = MedTrans(
         tds.x.shape[1],
         __recIcdMedCount,
-        (int(__recIcdMedCount / nhead) + (1 if __recIcdMedCount % nhead != 0 else 0)) * nhead,
+        dModel,
         nhead,
         hiddenLayers,
         maxVecSize=maxVec
     );
-    lossFn: torch.nn.Module = torch.nn.CrossEntropyLoss();
+    lossFn: torch.nn.Module = torch.nn.BCEWithLogitsLoss(reduction="none");
     opt: torch.optim.Optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9);
     dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu");
+    print("m::512", torch.cuda.is_available(), dev);
     model.to(dev);
     iter(model,
          tds, vds,
          lossFn, opt,
          maxVec=maxVec,
-         epoch=500,
+         mFeature = dModel,
+         epoch=200,
          dev=dev);
     return 0;
 
 
 def main() -> int:
-    __service_privateTrain(ukbPkl=f"data/1737145582028.pkl", mpiPkl="map/medPerIcd.pkl", maxVec=512);
+    __service_privateTrain(ukbPkl=f"data/1737145582028.pkl", mpiPkl="map/medPerIcd.pkl", maxVec=1024);
     return 0;
 
 
