@@ -14,6 +14,8 @@ from util.util import *;
 from obj.pt import *;
 from models.transfomer import PtDS, iter;
 from models.transformerVanilla import MedTrans;
+from obj.DataProcessor import DataProcessor;
+from obj.embKG1 import KGEmbed;
 
 
 def __service_getNotNullDates(l: List[str]) -> List[str]:
@@ -481,29 +483,19 @@ def __service_getIcdRecMedCt(tarICD: str, recDrugMap: str) -> int:
     return len(__tmpD.keys());
 
 
-def __service_privateTrain(ukbPkl: str,
-                           mpiPkl: str,
-                           tarICD: str = "e11",
+def __service_privateTrain(dp: DataProcessor,
+                           tarICD: str = "E11",
                            nhead: int = 4,
                            hiddenLayers: int = 512,
                            maxVec: int = 128) -> int:
-    assert os.path.exists(ukbPkl);
-    ptds: PtDS; medPerIcdDict: Dict[str, List[str]]; parIcdMedCount: Dict[str, List[str]];
-    ptds, medPerIcdDict, parIcdMedCount = __service_loadDtByICD(tarICD, ukbPkl, mpiPkl);
-    __recIcdMedCount: int = len(parIcdMedCount[tarICD[:3].upper()]);
-    # print(ptds.x.shape, ptds.xm.shape, ptds.y.shape, ptds.ym.shape);
-    # print(ptds.x[:6])
-    # print(ptds.xm[:4])
-    # print(ptds.y[:4])
-    # print(ptds.ym[:4])
-    # print(ptds[:4]);
-    tds: PtDS; vds: PtDS;
-    tds, vds = __service_splitTrainTest(ptds);
-    # print(len(tds.pidList), len(vds.pidList));
-    maxXCol: int = ptds.x.shape[1];
+
+    __recIcdMedCount: int = dp.getYGtClassLen();
+    __xm = dp[0, True][1];
+
+    maxXCol: int = __xm.shape[1];
     dModel: int = (int(maxXCol / nhead) + (1 if maxXCol % nhead != 0 else 0)) * nhead;
     model: MedTrans = MedTrans(
-        tds.x.shape[1],
+        maxXCol,
         __recIcdMedCount,
         dModel,
         nhead,
@@ -516,7 +508,7 @@ def __service_privateTrain(ukbPkl: str,
     print("m::512", torch.cuda.is_available(), dev);
     model.to(dev);
     iter(model,
-         tds, vds,
+         dp,
          lossFn, opt,
          maxVec=maxVec,
          mFeature = dModel,
@@ -526,7 +518,26 @@ def __service_privateTrain(ukbPkl: str,
 
 
 def main() -> int:
-    __service_privateTrain(ukbPkl=f"data/1737145582028.pkl", mpiPkl="map/medPerIcd.pkl", maxVec=1024);
+    batchSize: int = 512;
+    icd: str = "E11";
+    print("m::523 loading embedder")
+    ebd: KGEmbed = KGEmbed(
+        allPt="data/allPt.pkl",
+        ukb2db="map/ukb2db.pkl",
+        db2emd="data/kgEmb.pkl",
+        icd="E11"
+    );
+    print("m::526 loading data processor")
+    dp: DataProcessor = DataProcessor(
+        pkl="data/allPt.pkl",
+        ebd=ebd,
+        medSeqMapUri="map/ukbMedTokenize.pkl",
+        epgPkl=f"data/{icd}EmbPtGroup{batchSize}.pkl",
+        icd=icd,
+        batchSize=batchSize
+    );
+    print("m::530 starting training")
+    __service_privateTrain(dp=dp, tarICD=icd, maxVec=256, hiddenLayers=64);
     return 0;
 
 

@@ -21,3 +21,6 @@ class Embedder:
     ]:
         raise NotImplementedError;
 
+    def getYGtClassLen(self) -> int:
+        raise NotImplementedError;
+

@@ -137,7 +137,10 @@ class KGEmbed(Embedder):
                                 )
                             );
                     except:
-                        pass;
+                        pass
+
+    def getYGtClassLen(self) -> int:
+        return self.__validYGtLen;
 
 
 def main() -> int:

@@ -97,6 +97,9 @@ class PtIterable():
         assert len(X) <= self.__lineSize[pt];
         return X, y;
 
+    def getYGtClassLen(self) -> int:
+        return self.__emb.getYGtClassLen();
+
 
 class DataProcessor:
 
@@ -108,21 +111,20 @@ class DataProcessor:
     __test: np.ndarray;
     __medSeqMap: dict[str, int];
 
-    def __init__(self, pkl: str, icd: str, ebd: Embedder, medSeqMapUri: str) -> None:
+    def __init__(self, pkl: str, icd: str, ebd: Embedder, medSeqMapUri: str, epgPkl: str, batchSize: int = 512) -> None:
         assert os.path.exists(pkl) and os.path.exists(medSeqMapUri);
         self.__pkl = pkl;
         self.__tarICD = icd;
         with open(pkl, "rb") as f:
             self.__allPt = pickle.load(f);
-        batchSize: int = 512;
         self.__pi = PtIterable(icd,
                                self.__allPt,
                                batchSize,
-                               epgPkl=f"../data/{icd}EmbPtGroup{batchSize}.pkl",
+                               epgPkl=epgPkl,
                                ebd=ebd);
         self.__train, self.__test = self.__pi.split();
         assert np.sum(self.__train | self.__test) == self.__pi.getBatchNum();
-        # print("dp::107", np.sum(self.__train), np.sum(self.__test), self.__pi.getBatchNum());
+        print("dp::107", np.sum(self.__train), np.sum(self.__test), self.__pi.getBatchNum());
         # print("dp::108", self.__pi.countTotalPt(self.__train), self.__pi.countTotalPt(self.__test));
         with open(medSeqMapUri, "rb") as f:
             self.__medSeqMap = pickle.load(f);
@@ -134,7 +136,7 @@ class DataProcessor:
         return True;
 
     def getBatchCount(self, train: bool = True) -> int:
-        return len(self.__train if train else self.__test);
+        return np.sum(self.__train if train else self.__test);
 
     def __service_makePtMatrix(self, x: List[np.ndarray], y: np.ndarray) -> Tuple[
         np.ndarray,     # X
@@ -207,7 +209,7 @@ class DataProcessor:
             __accum += len(xd);
         return retXd, retXm, retXo, retYd, retYm, retYo;
 
-    def __getitem__(self, idx: int, train: bool = True) -> Tuple[
+    def __getitem__(self, t: Tuple[int, bool]) -> Tuple[
         np.ndarray,     # X
         np.ndarray,     # X Mask
         np.ndarray,     # X Mask One-hot
@@ -215,10 +217,14 @@ class DataProcessor:
         np.ndarray,     # Y Mask
         np.ndarray      # y Mask One-hot
     ]:
+        # print(f"dp::218 {t}")
+        idx: int = t[0];
+        train: bool = t[1];
         tarBatch: np.ndarray = self.__train if train else self.__test;
-        if idx >= len(tarBatch):
+        __allIdx: np.ndarray = np.array([i for i in range(len(tarBatch))], dtype=int);
+        if idx >= len(__allIdx[tarBatch]):
             raise IndexError;
-        ptBatch: List[str] = self.__pi.getBatch(idx);
+        ptBatch: List[str] = self.__pi.getBatch(__allIdx[tarBatch].tolist()[idx]);
         allDt: List[Tuple[List[np.ndarray], np.ndarray]] = [];
         for i in range(len(ptBatch)):
             # print(f"dp::154 {i + 1:4d}/{len(ptBatch):4d}")
@@ -234,13 +240,18 @@ class DataProcessor:
         # return self.__service_padDt(__allPtMatrix)
         return self.__service_padDt([self.__service_makePtMatrix(__pm[0], __pm[1]) for __pm in allDt]);
 
+    def getYGtClassLen(self) -> int:
+        return self.__pi.getYGtClassLen();
+
 
 def main() -> int:
+    batchSize: int = 512;
     ebd: KGEmbed = KGEmbed(allPt="../data/allPt.pkl", ukb2db="../map/ukb2db.pkl", db2emd="../data/kgEmb.pkl", icd="E11");
     dp: DataProcessor = DataProcessor(
-        pkl="../data/allPt.pkl", ebd=ebd, medSeqMapUri="../map/ukbMedTokenize.pkl", icd="E11"
+        pkl="../data/allPt.pkl", ebd=ebd, medSeqMapUri="../map/ukbMedTokenize.pkl", icd="E11", batchSize=batchSize
     );
-    # xd, xm, xo, yd, ym, yo = dp[0];
+    xd, xm, xo, yd, ym, yo = dp[0, True];
+    print(yd.shape)
     return 0;
 
 
