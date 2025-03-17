@@ -49,22 +49,28 @@ class PtIterable():
                     return True;
             return False;
 
-        __qualifiedPt: List[str] = [];
-        for p in list(allPt.keys()):
-            if not __service_isPtQualified(allPt[p]):
-                continue;
-            __qualifiedPt.append(p);
-            __placed: bool = False;
-            # print(f"dp::81 {__service_seqTotalLines([p])}")
-            for i in range(len(self.__ptGrouping)):
-                if self.__service_seqTotalLines(self.__ptGrouping[i] + [p]) <= batchSize:
-                    self.__ptGrouping[i].append(p);
-                    __placed = True;
-                    break;
-            if not __placed:
-                self.__ptGrouping.append([p]);
-        # print(self.__ptGrouping);
-        # print([__service_seqTotalLines(pg) for pg in self.__ptGrouping]);
+        if batchSize == -1:
+            for p in list(allPt.keys()):
+                if __service_isPtQualified(allPt[p]):
+                    self.__ptGrouping.append([p]);
+        else:
+            __qualifiedPt: List[str] = [];
+            for p in list(allPt.keys()):
+                if not __service_isPtQualified(allPt[p]):
+                    continue;
+                __qualifiedPt.append(p);
+                __placed: bool = False;
+                # print(f"dp::81 {__service_seqTotalLines([p])}")
+                for i in range(len(self.__ptGrouping)):
+                    if self.__service_seqTotalLines(self.__ptGrouping[i] + [p]) <= batchSize:
+                        self.__ptGrouping[i].append(p);
+                        __placed = True;
+                        break;
+                if not __placed:
+                    self.__ptGrouping.append([p]);
+            # print(self.__ptGrouping);
+            # print([__service_seqTotalLines(pg) for pg in self.__ptGrouping]);
+
         with open(epgPkl, "wb") as f:
             pickle.dump((self.__lineSize, self.__ukb2EmbMap, self.__ptGrouping), f);
 
@@ -110,6 +116,7 @@ class DataProcessor:
     __train: np.ndarray;
     __test: np.ndarray;
     __medSeqMap: dict[str, int];
+    __maxPtId: int;
 
     def __init__(self, pkl: str, icd: str, ebd: Embedder, medSeqMapUri: str, epgPkl: str, batchSize: int = 512) -> None:
         assert os.path.exists(pkl) and os.path.exists(medSeqMapUri);
@@ -117,6 +124,9 @@ class DataProcessor:
         self.__tarICD = icd;
         with open(pkl, "rb") as f:
             self.__allPt = pickle.load(f);
+        __pids: List[str] = list(self.__allPt.keys());
+        __pids.sort(reverse=True);
+        self.__maxPtId = int(__pids[0]);
         self.__pi = PtIterable(icd,
                                self.__allPt,
                                batchSize,
@@ -124,7 +134,7 @@ class DataProcessor:
                                ebd=ebd);
         self.__train, self.__test = self.__pi.split();
         assert np.sum(self.__train | self.__test) == self.__pi.getBatchNum();
-        print("dp::107", np.sum(self.__train), np.sum(self.__test), self.__pi.getBatchNum());
+        # print("dp::107", np.sum(self.__train), np.sum(self.__test), self.__pi.getBatchNum());
         # print("dp::108", self.__pi.countTotalPt(self.__train), self.__pi.countTotalPt(self.__test));
         with open(medSeqMapUri, "rb") as f:
             self.__medSeqMap = pickle.load(f);
@@ -209,6 +219,42 @@ class DataProcessor:
             __accum += len(xd);
         return retXd, retXm, retXo, retYd, retYm, retYo;
 
+    def __service_dtBatch(self, dt: List[
+        Tuple[
+            np.ndarray, np.ndarray, np.ndarray,
+            np.ndarray, np.ndarray, np.ndarray
+        ]
+    ]) -> Tuple[
+        np.ndarray,  # X
+        np.ndarray,  # X Mask
+        np.ndarray,  # X Mask One-hot
+        np.ndarray,  # Y GT
+        np.ndarray,  # Y Mask
+        np.ndarray  # y Mask One-hot
+    ]:
+        maxShape: List[int] = [0, 0];
+        for x, _, _, _, _, _ in dt:
+            if len(x) > maxShape[0]:
+                maxShape[0] = len(x);
+            if len(x[0]) > maxShape[1]:
+                maxShape[1] = len(x[0]);
+        rxd: np.ndarray = np.zeros((len(dt), maxShape[0], maxShape[1]), dtype=float);
+        rxm: np.ndarray = np.zeros((len(dt), maxShape[0], maxShape[1]), dtype=int);
+        rxo: np.ndarray = np.zeros((len(dt), maxShape[0]), dtype=int);
+        ryd: np.ndarray = np.zeros((len(dt), maxShape[0], self.__pi.getYGtClassLen()), dtype=int);
+        rym: np.ndarray = np.zeros((len(dt), maxShape[0], self.__pi.getYGtClassLen()), dtype=int);
+        ryo: np.ndarray = np.zeros((len(dt), maxShape[0]), dtype=int);
+
+        for dti in range(len(dt)):
+            xd, xm, xo, yd, ym, yo = dt[dti];
+            rxd[dti, :len(xd), :len(xd[0])] = xd;
+            rxm[dti, :len(xm), :len(xm[0])] = xm;
+            rxo[dti, :len(xo)] = xo;
+            ryd[dti, :len(yd), :len(xd[0])] = yd;
+            rym[dti, :len(ym), :len(xm[0])] = ym;
+            ryo[dti, :len(yo)] = yo;
+        return rxd, rxm, rxo, ryd, rym, ryo;
+
     def __getitem__(self, t: Tuple[int, bool]) -> Tuple[
         np.ndarray,     # X
         np.ndarray,     # X Mask
@@ -238,7 +284,10 @@ class DataProcessor:
         #     ]
         # ] = [self.__service_makePtMatrix(__pm[0], __pm[1]) for __pm in allDt]
         # return self.__service_padDt(__allPtMatrix)
-        return self.__service_padDt([self.__service_makePtMatrix(__pm[0], __pm[1]) for __pm in allDt]);
+        ret = self.__service_padDt([self.__service_makePtMatrix(__pm[0], __pm[1]) for __pm in allDt]);
+        # ret[0][:, 0] /= self.__maxPtId;
+        # return self.__service_dtBatch([self.__service_makePtMatrix(__pm[0], __pm[1]) for __pm in allDt]);
+        return ret;
 
     def getYGtClassLen(self) -> int:
         return self.__pi.getYGtClassLen();

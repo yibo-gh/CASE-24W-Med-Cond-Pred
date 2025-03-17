@@ -1,10 +1,13 @@
-
+import math
+import time
 from typing import Tuple, List, Dict;
 
 from torch.utils.data import Dataset;
 import torch;
 import numpy as np;
 import torch.nn as nn;
+from torchmetrics.functional import f1_score;
+
 from obj.DataProcessor import DataProcessor;
 
 class PtDS(Dataset):
@@ -75,9 +78,7 @@ def train(model: nn.Module,
           y: torch.Tensor, ym: torch.Tensor, yOri: torch.Tensor,
           lossFn: nn.Module, opt: torch.optim.Optimizer,
           dev: torch.device) -> float:
-    # print("t::124", dev)
     res: torch.Tensor = model(X.to(dev), xm.to(dev), ym.to(dev), dev);
-    # print("t::128", ymOri.shape, lossFn(res, y).shape)
     ymOriAcc: torch.Tensor = yOri.to(torch.int).to(dev);
     loss = (ymOriAcc * lossFn(res, y.to(dev))).sum() / ymOriAcc.sum();
     del ymOriAcc;
@@ -90,28 +91,34 @@ def evaluate(model: nn.Module,
              X: torch.Tensor, xm: torch.Tensor,
              y: torch.Tensor, ym: torch.Tensor, yOri: torch.Tensor,
              lossFn: nn.Module,
-             dev: torch.device) -> Tuple[float, int, int]:
+             dev: torch.device) -> Tuple[float, int, int, float]:
     model.eval();
     with torch.no_grad():
         res = model(X.to(dev), xm.to(dev), ym.to(dev), dev);
         ymOriAcc: torch.Tensor = yOri.to(torch.int).to(dev);
         loss = (ymOriAcc * lossFn(res, y.to(dev))).sum() / ymOriAcc.sum();
         del ymOriAcc;
-        res = (torch.softmax(res.cpu(), dim=1) >= .5).float();
+        res = (torch.sigmoid(res.cpu()) >= .5).float();
+        f1: torch.Tensor = f1_score(res[ym == 1], y[ym == 1], task="multiclass", num_classes=res.size(1));
         com: torch.Tensor = res[ym == 1] == y[ym == 1];
         total: int = int(com.view(-1).size(0));
-    return loss.item(), total, int(torch.sum(com));
+    return loss.item(), total, int(torch.sum(com)), float(f1);
 
 
 def __service_prepDt4training(dt: torch.Tensor, maxVec: int, mFeature: int, mask: bool = False, dtype=torch.float32) -> torch.Tensor:
-    # print(dt.shape)
-    # ret: torch.Tensor = torch.zeros((maxVec, max(dt.size(1), mFeature)) if not mask else maxVec, dtype=torch.float32);
-    ret: torch.Tensor = torch.zeros((maxVec, max(dt.size(1), mFeature)) if not mask else maxVec, dtype=dtype);
-    if not mask:
-        ret[:len(dt), :dt.size(1)] = dt;
+    if (len(dt.shape) + (0 if not mask else 1)) == 2:
+        ret: torch.Tensor = torch.zeros((maxVec, max(dt.size(1), mFeature)) if not mask else maxVec, dtype=dtype);
+        if not mask:
+            ret[:len(dt), :dt.size(1)] = dt;
+        else:
+            ret[:len(dt)] = dt;
     else:
-        ret[:len(dt)] = dt;
-    # print("t::143", ret.shape)
+        assert (len(dt.shape) + (0 if not mask else 1)) == 3;
+        ret: torch.Tensor = torch.zeros((len(dt), maxVec, max(dt.size(2), mFeature)) if not mask else (len(dt), maxVec), dtype=dtype);
+        if not mask:
+            ret[:, :dt.size(1), :dt.size(2)] = dt;
+        else:
+            ret[:, :dt.size(1)] = dt;
     return ret;
 
 
@@ -142,8 +149,10 @@ def iter(model: nn.Module,
          epoch: int,
          maxVec: int,
          mFeature: int,
-         dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")) -> None:
+         dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
+         modelDir: str = "modelOut") -> None:
 
+    __bestF1: float = 0;
     for i in range(epoch):
         trainLoss: float = 0;
         valLoss: float = 0;
@@ -151,7 +160,7 @@ def iter(model: nn.Module,
         vCorr: int = 0;
 
         for j in range(dp.getBatchCount()):
-            print(f"t::206 Training Batch {j + 1:4d}/{dp.getBatchCount()} of Epoch {i + 1:4d}/{epoch}")
+            # print(f"t::206 Training Batch {j + 1:4d}/{dp.getBatchCount()} of Epoch {i + 1:4d}/{epoch}")
             xd, xm, xo, yd, ym, yo = dp[j, True];
             # print("t::156", xd.shape, xm.shape, xo.shape, yd.shape, ym.shape, yo.shape)
             tLoss: float = train(model,
@@ -167,8 +176,8 @@ def iter(model: nn.Module,
         for j in range(dp.getBatchCount(False)):
             xd, xm, xo, yd, ym, yo = dp[j, False];
             # print("t::169", xd.shape, xm.shape, xo.shape, yd.shape, ym.shape, yo.shape)
-            print(f"t::206 Validating Batch {j + 1:4d}/{dp.getBatchCount(False)} of Epoch {i + 1:4d}/{epoch}")
-            loss, total, corr = evaluate(model,
+            # print(f"t::206 Validating Batch {j + 1:4d}/{dp.getBatchCount(False)} of Epoch {i + 1:4d}/{epoch}")
+            loss, total, corr, f1 = evaluate(model,
                                          __service_prepDt4training(torch.from_numpy(xd), maxVec, mFeature=0),
                                          __service_prepDt4training(torch.from_numpy(xm), maxVec, mFeature=mFeature),
                                          __service_prepDt4training(torch.from_numpy(yd), maxVec, mFeature=0),
@@ -180,5 +189,10 @@ def iter(model: nn.Module,
             vTotal += total;
             vCorr += corr;
             # break;
-        print(f"Epoch {i + 1:4d}/{epoch} - Train Loss: {trainLoss:.4f}, Validation Loss: {valLoss:.4f}, Validation Acc: {vCorr * 100 / vTotal:5.2f}%");
+        print(f"Epoch {i + 1:4d}/{epoch} - Train Loss: {trainLoss:.4f}, Validation Loss: {valLoss:.4f}, Validation Acc: {vCorr * 100 / vTotal:5.2f}%, F-1: {f1 * 100:5.2f}%");
+        if math.isnan(trainLoss) or math.isnan(valLoss):
+            return;
+        if f1 > __bestF1:
+            __bestF1 = f1;
+            torch.save(model, f"{modelDir}/{time.time_ns()}-{i + 1}-{f1}.pt");
 

@@ -124,7 +124,7 @@ class KGEmbed(Embedder):
                     retY: np.ndarray = np.zeros(self.__validYGtLen, dtype=int);
                     for m in e.assoMed:
                         retY[self.__tarYCodeMap[m]] = 1;
-                        # '1140884600'
+                    # print("ekg::127", int(pt.id), pt.dem.vectorize(), retX, retY)
                     return int(pt.id), pt.dem.vectorize(), retX, retY;
                 for m in e.assoMed:
                     try:

@@ -484,10 +484,10 @@ def __service_getIcdRecMedCt(tarICD: str, recDrugMap: str) -> int:
 
 
 def __service_privateTrain(dp: DataProcessor,
-                           tarICD: str = "E11",
                            nhead: int = 4,
                            hiddenLayers: int = 512,
-                           maxVec: int = 128) -> int:
+                           maxVec: int = 128,
+                           lr: float = 5e-6) -> int:
 
     __recIcdMedCount: int = dp.getYGtClassLen();
     __xm = dp[0, True][1];
@@ -500,10 +500,11 @@ def __service_privateTrain(dp: DataProcessor,
         dModel,
         nhead,
         hiddenLayers,
-        maxVecSize=maxVec
+        maxVecSize=maxVec,
+        batched=False
     );
     lossFn: torch.nn.Module = torch.nn.BCEWithLogitsLoss(reduction="none");
-    opt: torch.optim.Optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9);
+    opt: torch.optim.Optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9);
     dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu");
     print("m::512", torch.cuda.is_available(), dev);
     model.to(dev);
@@ -512,13 +513,13 @@ def __service_privateTrain(dp: DataProcessor,
          lossFn, opt,
          maxVec=maxVec,
          mFeature = dModel,
-         epoch=200,
+         epoch=250,
          dev=dev);
     return 0;
 
 
 def main() -> int:
-    batchSize: int = 512;
+    batchMaxVec: int = 512;
     icd: str = "E11";
     print("m::523 loading embedder")
     ebd: KGEmbed = KGEmbed(
@@ -532,12 +533,12 @@ def main() -> int:
         pkl="data/allPt.pkl",
         ebd=ebd,
         medSeqMapUri="map/ukbMedTokenize.pkl",
-        epgPkl=f"data/{icd}EmbPtGroup{batchSize}.pkl",
+        epgPkl=f"data/{icd}EmbPtGroup{batchMaxVec}.pkl",
         icd=icd,
-        batchSize=batchSize
+        batchSize=batchMaxVec
     );
     print("m::530 starting training")
-    __service_privateTrain(dp=dp, tarICD=icd, maxVec=256, hiddenLayers=64);
+    __service_privateTrain(dp=dp, maxVec=256, hiddenLayers=32, nhead=16, lr=1e-5);
     return 0;
 
 

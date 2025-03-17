@@ -15,6 +15,10 @@ DbICD/
 *.cpy
 *.old.py
 
+# Models and Torch Outputs
+modelOut/
+*.pt
+
 # Actual dataset
 *.csv
 

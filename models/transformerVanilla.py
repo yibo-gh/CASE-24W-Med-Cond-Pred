@@ -11,7 +11,8 @@ class MedTrans(nn.Module):
                  nhead: int,
                  num_layers: int,
                  maxVecSize: int = 128,
-                 dropout: float=0.1) -> None:
+                 dropout: float=0.1,
+                 batched: bool = False) -> None:
         super().__init__();
 
         # print(f"t::80 d_model {d_model}")
@@ -24,7 +25,7 @@ class MedTrans(nn.Module):
         self.maxVec: int = maxVecSize;
         self.dropout: float = dropout;
 
-        print("t:90", input_dim, d_model)
+        # print("t::90", input_dim, d_model)
         self.linear_proj = nn.Linear(input_dim, d_model);
         self.positional_encoding = nn.Parameter(torch.zeros(maxVecSize, d_model));
         # self.transformer = nn.Transformer(
@@ -32,10 +33,13 @@ class MedTrans(nn.Module):
         #     num_decoder_layers=num_layers, dropout=dropout, batch_first=True
         # );
         self.transformer_encoder = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dropout=dropout),
+            nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dropout=dropout, batch_first=batched),
             num_layers=num_layers
         )
         self.fc = nn.Linear(d_model, output_dim);
+        self.fc1 = nn.Linear(d_model, 256);
+        self.fc2 = nn.Linear(256, 256);
+        self.fc3 = nn.Linear(256, output_dim);
 
     def forward(self, x: torch.Tensor, xm: torch.Tensor, vecSelector: torch.Tensor, dev: torch.device) -> torch.Tensor:
         x_emb = self.linear_proj(x) + self.positional_encoding[:, :self.dModel]
@@ -46,6 +50,10 @@ class MedTrans(nn.Module):
         attn_mask = torch.zeros((len(x), len(x))).to(dev)
         attn_mask[:, :self.dModel][xm == 0] = float('-inf');
         transformer_output = self.transformer_encoder(x_emb, mask=attn_mask, src_key_padding_mask=vecSelector);
-        output = self.fc(transformer_output[vecSelector.to(torch.int)]);
+        # output = self.fc(transformer_output[vecSelector.to(torch.int)]);
+        output = self.fc1(transformer_output[vecSelector.to(torch.int)]);
+        for _ in range(5):
+            output = self.fc2(output);
+        output = self.fc3(output);
         return output
 
