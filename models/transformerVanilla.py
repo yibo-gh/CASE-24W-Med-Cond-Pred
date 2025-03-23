@@ -38,7 +38,7 @@ class MedTrans(nn.Module):
         )
 
         def hook_fn(module, input, output):
-            if torch.isnan(output[0].T).any():
+            if torch.isnan(output[0]).any():
                 print(f"NaN detected in module: {module}")
                 exit(254)
 
@@ -52,20 +52,23 @@ class MedTrans(nn.Module):
 
     def forward(self, x: torch.Tensor, xm: torch.Tensor, vecSelector: torch.Tensor, dev: torch.device) -> torch.Tensor:
         # print(f"tv::45 {torch.sum(x)}")
+        # print("tv::55", x.shape)
+        assert len(x.shape) == 3;
         x_emb = self.linear_proj(x) + self.positional_encoding[:, :self.dModel]
         # print(f"tv::46-0 {torch.sum(self.linear_proj(x))}")
         # print(f"tv::46-1 {torch.sum(self.positional_encoding)}")
         # print(f"tv::46-2 {torch.sum(x_emb)}")
         # print("tv::101", x_emb.shape, self.dModel)
-        assert x_emb.size(1) == self.dModel;
+        assert x_emb.size(-1) == self.dModel;
         # print("tv::107", x_emb.shape, xm.shape)
         # print("tv::108", xm.T)
-        attn_mask = torch.zeros((len(x), len(x))).to(dev)
+        # attn_mask = torch.zeros((x.shape[0], x.shape[-1], x.shape[-1])).to(dev)
         # attn_mask += float('-inf');
-        attn_mask[:, :self.dModel][xm == 0] = 1;
+        # print("tv::67", xm.shape, attn_mask[:, :self.dModel, :self.dModel].shape)
+        # attn_mask[:, :self.dModel, :self.dModel][xm == 0] = 1;
         # print(f"tv::54 {torch.sum(vecSelector)}")
 
-        skpm: torch.Tensor = torch.zeros(x.size(-2), dtype=torch.bool).to(dev);
+        skpm: torch.Tensor = torch.zeros((x.shape[0], x.size(-2)), dtype=torch.bool).to(dev);
         # print(xm.shape)
         skpm[xm.sum(dim=-1) == 0] = 1;
         transformer_output = self.transformer_encoder(x_emb, mask=None, src_key_padding_mask=skpm);
@@ -74,7 +77,14 @@ class MedTrans(nn.Module):
         #     print(f"{torch.sum(transformer_output)}")
         #     exit(255);
         # output = self.fc(transformer_output[vecSelector.to(torch.int)]);
-        output = self.fc1(transformer_output[vecSelector.to(torch.int)]);
+        # print(f"tv::80 {transformer_output.shape}")
+        # print(f"tv::81 {vecSelector.shape}")
+        # print(vecSelector)
+        assert torch.sum(torch.sum(vecSelector, dim=-1) == 1) == len(transformer_output);
+        # transOut: torch.Tenor = torch.zeros((len(transformer_output), transformer_output.size(-1))).to(dev).to(transformer_output.dtype);
+        # for i in range(len(vecSelector)):
+        #     transOut[i] = transformer_output[i][vecSelector[i] == 1]
+        output = self.fc1(transformer_output);
         # print(f"tv::58 {torch.sum(output)}");
         for i in range(5):
             output = self.fc2(output);

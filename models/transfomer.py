@@ -81,6 +81,8 @@ def train(model: nn.Module,
           dev: torch.device,
           outAct: Callable = F.softmax) -> float:
     res: torch.Tensor = outAct(model(X.to(dev), xm.to(dev), ym.to(dev), dev), dim=1);
+    # print(f"t::85 {yOri.shape}")
+    #print(f"t::85 {yOri}")
     ymOriAcc: torch.Tensor = yOri.to(torch.int).to(dev);
     loss = (ymOriAcc * lossFn(res, y.to(dev))).sum() / ymOriAcc.sum();
     # print(f"t::84 {torch.sum(res)} {loss}");

@@ -492,7 +492,7 @@ def __service_privateTrain(dp: DataProcessor,
     __recIcdMedCount: int = dp.getYGtClassLen();
     __xm = dp[0, True][1];
 
-    maxXCol: int = __xm.shape[1];
+    maxXCol: int = __xm.shape[-1];
     dModel: int = (int(maxXCol / nhead) + (1 if maxXCol % nhead != 0 else 0)) * nhead;
     model: MedTrans = MedTrans(
         maxXCol,
@@ -501,7 +501,7 @@ def __service_privateTrain(dp: DataProcessor,
         nhead,
         hiddenLayers,
         maxVecSize=maxVec,
-        batched=False
+        batched=True
     );
     lossFn: torch.nn.Module = torch.nn.BCEWithLogitsLoss(reduction="none");
     opt: torch.optim.Optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9);
@@ -519,6 +519,7 @@ def __service_privateTrain(dp: DataProcessor,
 
 
 def main() -> int:
+    os.environ["CUDA_LAUNCH_BLOCKING"] = "1";
     batchMaxVec: int = -1;
     icd: str = "E11";
     print("m::523 loading embedder")
