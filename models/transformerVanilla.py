@@ -41,6 +41,10 @@ class MedTrans(nn.Module):
             if torch.isnan(output[0]).any():
                 print(f"NaN detected in module: {module}")
                 exit(254)
+            if isinstance(output, torch.Tensor):
+                clamped = torch.clamp(output, min=-10, max=10)
+                return torch.nn.functional.softmax(clamped, dim=-1)
+            return output
 
         for layer in self.transformer_encoder.layers:
             layer.self_attn.register_forward_hook(hook_fn);
