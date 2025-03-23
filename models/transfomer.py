@@ -1,9 +1,10 @@
 import math
 import time
-from typing import Tuple, List, Dict;
+from typing import Tuple, List, Dict, Callable;
 
 from torch.utils.data import Dataset;
 import torch;
+import torch.nn.functional as F;
 import numpy as np;
 import torch.nn as nn;
 from torchmetrics.functional import f1_score;
@@ -77,12 +78,15 @@ def train(model: nn.Module,
           X: torch.Tensor, xm: torch.Tensor,
           y: torch.Tensor, ym: torch.Tensor, yOri: torch.Tensor,
           lossFn: nn.Module, opt: torch.optim.Optimizer,
-          dev: torch.device) -> float:
-    res: torch.Tensor = model(X.to(dev), xm.to(dev), ym.to(dev), dev);
+          dev: torch.device,
+          outAct: Callable = F.softmax) -> float:
+    res: torch.Tensor = outAct(model(X.to(dev), xm.to(dev), ym.to(dev), dev), dim=1);
     ymOriAcc: torch.Tensor = yOri.to(torch.int).to(dev);
     loss = (ymOriAcc * lossFn(res, y.to(dev))).sum() / ymOriAcc.sum();
+    # print(f"t::84 {torch.sum(res)} {loss}");
     del ymOriAcc;
     loss.backward();
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
     opt.step();
     return loss.item();
 
@@ -91,14 +95,15 @@ def evaluate(model: nn.Module,
              X: torch.Tensor, xm: torch.Tensor,
              y: torch.Tensor, ym: torch.Tensor, yOri: torch.Tensor,
              lossFn: nn.Module,
-             dev: torch.device) -> Tuple[float, int, int, float]:
+             dev: torch.device,
+             outAct: Callable = F.softmax) -> Tuple[float, int, int, float]:
     model.eval();
     with torch.no_grad():
-        res = model(X.to(dev), xm.to(dev), ym.to(dev), dev);
-        ymOriAcc: torch.Tensor = yOri.to(torch.int).to(dev);
-        loss = (ymOriAcc * lossFn(res, y.to(dev))).sum() / ymOriAcc.sum();
+        res = outAct(model(X.to(dev), xm.to(dev), ym.to(dev), dev).cpu(), dim=1);
+        ymOriAcc: torch.Tensor = yOri.to(torch.int);
+        loss = (ymOriAcc * lossFn(res, y)).sum() / ymOriAcc.sum();
         del ymOriAcc;
-        res = (torch.sigmoid(res.cpu()) >= .5).float();
+        res = (res >= .5).float();
         f1: torch.Tensor = f1_score(res[ym == 1], y[ym == 1], task="multiclass", num_classes=res.size(1));
         com: torch.Tensor = res[ym == 1] == y[ym == 1];
         total: int = int(com.view(-1).size(0));
@@ -160,7 +165,7 @@ def iter(model: nn.Module,
         vCorr: int = 0;
 
         for j in range(dp.getBatchCount()):
-            # print(f"t::206 Training Batch {j + 1:4d}/{dp.getBatchCount()} of Epoch {i + 1:4d}/{epoch}")
+            print(f"t::206 Training Batch {j + 1:4d}/{dp.getBatchCount()} of Epoch {i + 1:4d}/{epoch}")
             xd, xm, xo, yd, ym, yo = dp[j, True];
             # print("t::156", xd.shape, xm.shape, xo.shape, yd.shape, ym.shape, yo.shape)
             tLoss: float = train(model,

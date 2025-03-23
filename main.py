@@ -519,7 +519,7 @@ def __service_privateTrain(dp: DataProcessor,
 
 
 def main() -> int:
-    batchMaxVec: int = 512;
+    batchMaxVec: int = -1;
     icd: str = "E11";
     print("m::523 loading embedder")
     ebd: KGEmbed = KGEmbed(
@@ -538,7 +538,7 @@ def main() -> int:
         batchSize=batchMaxVec
     );
     print("m::530 starting training")
-    __service_privateTrain(dp=dp, maxVec=256, hiddenLayers=32, nhead=16, lr=1e-5);
+    __service_privateTrain(dp=dp, maxVec=256, hiddenLayers=32, nhead=4, lr=1e-5);
     return 0;
 
 
