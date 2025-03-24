@@ -100,7 +100,8 @@ def evaluate(model: nn.Module,
              dev: torch.device,
              outAct: Callable = F.softmax) -> Tuple[float, int, int, float]:
     model.eval();
-    with torch.no_grad():
+    # with torch.no_grad():
+    if True:
         res = outAct(model(X.to(dev), xm.to(dev), ym.to(dev), dev).cpu(), dim=1);
         ymOriAcc: torch.Tensor = yOri.to(torch.int);
         loss = (ymOriAcc * lossFn(res, y)).sum() / ymOriAcc.sum();
@@ -167,7 +168,7 @@ def iter(model: nn.Module,
         vCorr: int = 0;
 
         for j in range(dp.getBatchCount()):
-            print(f"t::206 Training Batch {j + 1:4d}/{dp.getBatchCount()} of Epoch {i + 1:4d}/{epoch}")
+            # print(f"t::206 Training Batch {j + 1:4d}/{dp.getBatchCount()} of Epoch {i + 1:4d}/{epoch}")
             xd, xm, xo, yd, ym, yo = dp[j, True];
             # print("t::156", xd.shape, xm.shape, xo.shape, yd.shape, ym.shape, yo.shape)
             tLoss: float = train(model,
