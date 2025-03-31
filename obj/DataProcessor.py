@@ -295,7 +295,8 @@ class DataProcessor:
 
 def main() -> int:
     batchSize: int = 512;
-    ebd: KGEmbed = KGEmbed(allPt="../data/allPt.pkl", ukb2db="../map/ukb2db.pkl", db2emd="../data/kgEmb.pkl", icd="E11");
+    ebd: KGEmbed = KGEmbed(allPt="../data/allPt.pkl", ukb2db="../map/ukb2db.pkl", db2emd="../data/kgEmb.pkl", icd="E11", ukbMed="../map/ukbMed.map");
+    exit();
     dp: DataProcessor = DataProcessor(
         pkl="../data/allPt.pkl", ebd=ebd, medSeqMapUri="../map/ukbMedTokenize.pkl", icd="E11", batchSize=batchSize
     );

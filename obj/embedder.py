@@ -9,6 +9,11 @@ from obj.pt import Pt;
 
 class Embedder:
 
+    def ukb2dbMappingCorrection(self, d:Dict[str, List[str]]) -> Dict[str, List[str]]:
+        d["1140888646"] = d["1140888646"][:1];
+        d["1140860904"] = d["1140860904"][:1];
+        return d;
+
     def __init__(self, ukb2db: str, db2emd: str, allPt: str) -> None:
         super().__init__();
 

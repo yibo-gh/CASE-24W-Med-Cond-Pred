@@ -526,7 +526,7 @@ def main() -> int:
     ebd: KGEmbed = KGEmbed(
         allPt="data/allPt.pkl",
         ukb2db="map/ukb2db.pkl",
-        db2emd="data/kgEmb.pkl",
+        db2emd="data/kgEmb2.pkl",
         icd="E11"
     );
     print("m::526 loading data processor")

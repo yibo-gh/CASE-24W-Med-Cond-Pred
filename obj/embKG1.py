@@ -1,5 +1,6 @@
 
 from typing import Tuple, Dict, List;
+import os;
 
 import numpy as np;
 import pickle;
@@ -20,25 +21,25 @@ class KGEmbed(Embedder):
     __icd2emb: Dict[str, np.ndarray];
     __db2emb: Dict[str, np.ndarray];
     __allPt: Dict[str, Pt] | None;
-    __tarYCodeMap: Dict[str, int];
+    __tarYCodeMap: Dict[str, List[int]];
     __validYGtLen: int;
     __icd: str;
 
-    def __init__(self, ukb2db: str, db2emd: str, allPt: str, icd: str) -> None:
+    def __init__(self, ukb2db: str, db2emd: str, allPt: str, icd: str, ukbMed: str = "map/ukbMed.map") -> None:
         super().__init__(ukb2db=ukb2db, db2emd=db2emd, allPt=allPt);
         self.__icd = icd;
         with open(allPt, "rb") as f:
             self.__allPt = pickle.load(f);
         self.__tarYCodeMap = dict();
-        self.__service_buildTarYMap(self.__allPt);
         with open(ukb2db, "rb") as f:
-            self.__ukbDbMap: Dict[str, List[str] | None] = pickle.load(f);
+            self.__ukbDbMap: Dict[str, List[str] | None] = self.ukb2dbMappingCorrection(pickle.load(f));
         with open(db2emd, "rb") as f:
             self.__icd2emb, self.__db2emb = pickle.load(f);
         self.__lineSize = dict();
         self.__ukb2EmbMap = dict();
+        self.__service_buildTarYMap(self.__allPt, ukbMed=ukbMed);
 
-    def __service_buildTarYMap(self, allPt: Dict[str, Pt]) -> None:
+    def __service_buildTarYMap(self, allPt: Dict[str, Pt], ukbMed: str) -> None:
         __tmpMedMap: Dict[str, int] = dict();
         for p in list(allPt.keys()):
             pt: Pt = allPt[p];
@@ -49,10 +50,22 @@ class KGEmbed(Embedder):
                     # print(f"ekg::47 {p} {m}")
                     __tmpMedMap[m] = 0;
         __medList: List[str] = list(__tmpMedMap.keys());
-        self.__validYGtLen = len(__medList);
-        for i in range(len(__medList)):
+        # for i in range(len(__medList)):
             # print(f"ekg::52 {i} {__medList[i]}")
-            self.__tarYCodeMap[__medList[i]] = i;
+            # self.__tarYCodeMap[__medList[i]] = i;
+
+        __allDBid: List[str] = []
+        for am in __medList:
+            __allDBid += self.__ukbDbMap[am];
+        __allDBid = list(set(__allDBid));
+        __allDBidIdx: Dict[str, int] = dict();
+        for i in range(len(__allDBid)):
+            __allDBidIdx[__allDBid[i]] = i;
+        # print(__allDBidIdx)
+
+        for ml in __medList:
+            self.__tarYCodeMap[ml] = [__allDBidIdx[__uid] for __uid in self.__ukbDbMap[ml]];
+        self.__validYGtLen = len(__allDBidIdx);
         return;
 
     def dtBatching(self, icd: str) -> Tuple[Dict[str, int], Dict[str, List[np.ndarray]]]:
@@ -123,7 +136,8 @@ class KGEmbed(Embedder):
                 if e.cont[0][:3].lower() == self.__icd[:3].lower():
                     retY: np.ndarray = np.zeros(self.__validYGtLen, dtype=int);
                     for m in e.assoMed:
-                        retY[self.__tarYCodeMap[m]] = 1;
+                        for __cm in self.__tarYCodeMap[m]:
+                            retY[__cm] = 1;
                     # print("ekg::127", int(pt.id), pt.dem.vectorize(), retX, retY)
                     return int(pt.id), pt.dem.vectorize(), retX, retY;
                 for m in e.assoMed:
