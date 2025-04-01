@@ -166,7 +166,7 @@ class MedTrans(nn.Module):
         transformer_output = self.transformer_encoder(x_emb, mask=None, src_key_padding_mask=skpm);
         assert torch.sum(torch.sum(vecSelector, dim=-1) == 1) == len(transformer_output);
         output = self.fc1(transformer_output);
-        for i in range(5):
+        for i in range(3):
             output = self.fc2(output);
         output = self.fc3(output);
         return output

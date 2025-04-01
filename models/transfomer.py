@@ -80,12 +80,9 @@ def train(model: nn.Module,
           lossFn: nn.Module, opt: torch.optim.Optimizer,
           dev: torch.device,
           outAct: Callable = F.softmax) -> float:
-    res: torch.Tensor = outAct(model(X.to(dev), xm.to(dev), ym.to(dev), dev), dim=1);
-    # print(f"t::85 {yOri.shape}")
-    #print(f"t::85 {yOri}")
+    res: torch.Tensor = outAct(model(X.to(dev), xm.to(dev), ym.to(dev), dev), dim=2);
     ymOriAcc: torch.Tensor = yOri.to(torch.int).to(dev);
     loss = (ymOriAcc * lossFn(res, y.to(dev))).sum() / ymOriAcc.sum();
-    # print(f"t::84 {torch.sum(res)} {loss}");
     del ymOriAcc;
     loss.backward();
     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
@@ -102,12 +99,23 @@ def evaluate(model: nn.Module,
     model.eval();
     # with torch.no_grad():
     if True:
-        res = outAct(model(X.to(dev), xm.to(dev), ym.to(dev), dev).cpu(), dim=1);
+        res = outAct(model(X.to(dev), xm.to(dev), ym.to(dev), dev).cpu(), dim=2);
         ymOriAcc: torch.Tensor = yOri.to(torch.int);
         loss = (ymOriAcc * lossFn(res, y)).sum() / ymOriAcc.sum();
         del ymOriAcc;
-        res = (res >= .5).float();
-        f1: torch.Tensor = f1_score(res[ym == 1], y[ym == 1], task="multiclass", num_classes=res.size(1));
+
+        for b in range(res.size(0)):
+            for s in range(res.size(1)):
+                __entry: torch.Tensor = res[b][s];
+                __y: torch.Tensor = y[b][s];
+                if torch.sum(yOri[b][s]) == 0:
+                    continue;
+                _, __sortedIdx = torch.sort(__entry);
+                __entry[__sortedIdx[:int(sum(__y))]] = 1;
+        # res = (res >= .5).float();
+        res[res != 1] = 0;
+        # print("t::117", torch.sum(res), torch.sum(y))
+        f1: torch.Tensor = f1_score(res[ym == 1], y[ym == 1], task="multiclass", num_classes=res.size(2));
         com: torch.Tensor = res[ym == 1] == y[ym == 1];
         total: int = int(com.view(-1).size(0));
     return loss.item(), total, int(torch.sum(com)), float(f1);
