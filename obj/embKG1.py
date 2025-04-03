@@ -24,8 +24,9 @@ class KGEmbed(Embedder):
     __tarYCodeMap: Dict[str, List[int]];
     __validYGtLen: int;
     __icd: str;
+    cwv: np.ndarray;
 
-    def __init__(self, ukb2db: str, db2emd: str, allPt: str, icd: str, ukbMed: str = "map/ukbMed.map") -> None:
+    def __init__(self, ukb2db: str, db2emd: str, allPt: str, icd: str) -> None:
         super().__init__(ukb2db=ukb2db, db2emd=db2emd, allPt=allPt);
         self.__icd = icd;
         with open(allPt, "rb") as f:
@@ -37,9 +38,9 @@ class KGEmbed(Embedder):
             self.__icd2emb, self.__db2emb = pickle.load(f);
         self.__lineSize = dict();
         self.__ukb2EmbMap = dict();
-        self.__service_buildTarYMap(self.__allPt, ukbMed=ukbMed);
+        self.__service_buildTarYMap(self.__allPt);
 
-    def __service_buildTarYMap(self, allPt: Dict[str, Pt], ukbMed: str) -> None:
+    def __service_buildTarYMap(self, allPt: Dict[str, Pt]) -> None:
         __tmpMedMap: Dict[str, int] = dict();
         for p in list(allPt.keys()):
             pt: Pt = allPt[p];
@@ -48,7 +49,10 @@ class KGEmbed(Embedder):
                     continue;
                 for m in e.assoMed:
                     # print(f"ekg::47 {p} {m}")
-                    __tmpMedMap[m] = 0;
+                    try:
+                        __tmpMedMap[m] += 1;
+                    except:
+                        __tmpMedMap[m] = 1;
         __medList: List[str] = list(__tmpMedMap.keys());
         # for i in range(len(__medList)):
             # print(f"ekg::52 {i} {__medList[i]}")
@@ -61,11 +65,37 @@ class KGEmbed(Embedder):
         __allDBidIdx: Dict[str, int] = dict();
         for i in range(len(__allDBid)):
             __allDBidIdx[__allDBid[i]] = i;
-        # print(__allDBidIdx)
+
+        for k in list(__allDBidIdx):
+            if self.medMat is None:
+                self.medMat = self.__db2emb[k][np.newaxis, :];
+            else:
+                self.medMat = np.concatenate((self.medMat, self.__db2emb[k][np.newaxis, :]))
 
         for ml in __medList:
             self.__tarYCodeMap[ml] = [__allDBidIdx[__uid] for __uid in self.__ukbDbMap[ml]];
         self.__validYGtLen = len(__allDBidIdx);
+
+        __totalQualifingPt: int = 0;
+        for p in list(allPt.keys()):
+            pt: Pt = allPt[p];
+            for e in pt.evtList:
+                if e.type == EvtClass.Dig and e.cont[0][:3].lower() == self.__icd[:3].lower():
+                    __totalQualifingPt += 1;
+                    break;
+        totalUse: List[int] = [0 for _ in range(self.__validYGtLen)];
+        for ml in __medList:
+            idx: List[int] = self.__tarYCodeMap[ml];
+            _dupDict: Dict[int, int] = dict();
+            for i in idx:
+                try:
+                    _dupDict[i];
+                except:
+                    totalUse[i] += __tmpMedMap[ml];
+                    _dupDict[i] = 0;
+        _cwv: List[float] = [(__totalQualifingPt - _var + 1e-5) / (_var + 1e-5) for _var in totalUse];
+        self.cwv = np.array(_cwv);
+
         return;
 
     def dtBatching(self, icd: str) -> Tuple[Dict[str, int], Dict[str, List[np.ndarray]]]:

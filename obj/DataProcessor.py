@@ -19,6 +19,10 @@ class PtIterable():
     __ukb2EmbMap: Dict[str, List[np.ndarray]];
     __ptGrouping: List[List[str]];
     __emb: Embedder;
+    cwv: np.ndarray;
+
+    def getMedMat(self) -> np.ndarray:
+        return self.__emb.medMat;
 
     def __service_seqTotalLines(self, seq: List[str]) -> int:
         return sum([self.__lineSize[s] for s in seq]);
@@ -30,6 +34,7 @@ class PtIterable():
                  ebd: Embedder) -> None:
         self.__icd = icd;
         self.__emb = ebd;
+        self.cwv = self.__emb.cwv;
 
         if os.path.exists(epgPkl):
             with open(epgPkl, "rb") as f:
@@ -117,6 +122,10 @@ class DataProcessor:
     __test: np.ndarray;
     __medSeqMap: dict[str, int];
     __maxPtId: int;
+    cwv: np.ndarray;
+
+    def getMedMat(self) -> np.ndarray:
+        return self.__pi.getMedMat();
 
     def __init__(self, pkl: str, icd: str, ebd: Embedder, medSeqMapUri: str, epgPkl: str, batchSize: int = 512) -> None:
         assert os.path.exists(pkl) and os.path.exists(medSeqMapUri);
@@ -132,6 +141,7 @@ class DataProcessor:
                                batchSize,
                                epgPkl=epgPkl,
                                ebd=ebd);
+        self.cwv = self.__pi.cwv;
         self.__train, self.__test = self.__pi.split();
         assert np.sum(self.__train | self.__test) == self.__pi.getBatchNum();
         # print("dp::107", np.sum(self.__train), np.sum(self.__test), self.__pi.getBatchNum());
@@ -295,7 +305,7 @@ class DataProcessor:
 
 def main() -> int:
     batchSize: int = 512;
-    ebd: KGEmbed = KGEmbed(allPt="../data/allPt.pkl", ukb2db="../map/ukb2db.pkl", db2emd="../data/kgEmb.pkl", icd="E11", ukbMed="../map/ukbMed.map");
+    ebd: KGEmbed = KGEmbed(allPt="../data/allPt.pkl", ukb2db="../map/ukb2db.pkl", db2emd="../data/kgEmb2.pkl", icd="E11");
     exit();
     dp: DataProcessor = DataProcessor(
         pkl="../data/allPt.pkl", ebd=ebd, medSeqMapUri="../map/ukbMedTokenize.pkl", icd="E11", batchSize=batchSize

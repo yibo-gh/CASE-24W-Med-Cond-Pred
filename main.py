@@ -13,7 +13,7 @@ from ukbUtil import fetchDB, loadMeta, readFile, UKB;
 from util.util import *;
 from obj.pt import *;
 from models.transfomer import PtDS, iter;
-from models.transformerVanilla import MedTrans;
+from models.transformerAdvFT import MedTrans;
 from obj.DataProcessor import DataProcessor;
 from obj.embKG1 import KGEmbed;
 
@@ -483,6 +483,46 @@ def __service_getIcdRecMedCt(tarICD: str, recDrugMap: str) -> int:
     return len(__tmpD.keys());
 
 
+def __service_privateEval(dp: DataProcessor, pt: str,
+                           nhead: int = 4,
+                           hiddenLayers: int = 512,
+                           maxVec: int = 128) -> int:
+    assert os.path.exists(pt);
+    __recIcdMedCount: int = dp.getYGtClassLen();
+    __xm = dp[0, True][1];
+    maxXCol: int = __xm.shape[-1];
+    dModel: int = (int(maxXCol / nhead) + (1 if maxXCol % nhead != 0 else 0)) * nhead;
+
+    model: MedTrans = MedTrans(
+        maxXCol,
+        __recIcdMedCount,
+        dModel,
+        nhead,
+        hiddenLayers,
+        maxVecSize=maxVec,
+        batched=True
+    );
+    model.setMedMat(dp.getMedMat());
+    model.load_state_dict(torch.load(pt, weights_only=True));
+    lossFn: torch.nn.Module = torch.nn.BCEWithLogitsLoss(reduction="none");
+    dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu");
+    maxXCol: int = __xm.shape[-1];
+    dModel: int = (int(maxXCol / nhead) + (1 if maxXCol % nhead != 0 else 0)) * nhead;
+
+    print("m::500", torch.cuda.is_available(), dev);
+    model.to(dev);
+
+    iter(model,
+         dp,
+         lossFn, None, None,
+         maxVec=maxVec,
+         mFeature = dModel,
+         epoch=250,
+         dev=dev,
+         evalOnly=True);
+    return 0;
+
+
 def __service_privateTrain(dp: DataProcessor,
                            nhead: int = 4,
                            hiddenLayers: int = 512,
@@ -503,18 +543,24 @@ def __service_privateTrain(dp: DataProcessor,
         maxVecSize=maxVec,
         batched=True
     );
-    lossFn: torch.nn.Module = torch.nn.BCEWithLogitsLoss(reduction="none");
-    opt: torch.optim.Optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9);
+    model.setMedMat(dp.getMedMat());
     dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu");
+    lossFn: torch.nn.Module = torch.nn.BCEWithLogitsLoss(
+        reduction="none",
+        pos_weight=torch.tensor(dp.cwv, dtype=torch.float).to(dev)
+    );
+    opt: torch.optim.Optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9);
+    scheduler = torch.optim.lr_scheduler.StepLR(opt, step_size=5, gamma=0.9);
     print("m::512", torch.cuda.is_available(), dev);
     model.to(dev);
     iter(model,
          dp,
-         lossFn, opt,
+         lossFn, opt, scheduler,
          maxVec=maxVec,
          mFeature = dModel,
          epoch=250,
-         dev=dev);
+         dev=dev,
+         save=False);
     return 0;
 
 
@@ -540,6 +586,7 @@ def main() -> int:
     );
     print("m::530 starting training")
     __service_privateTrain(dp=dp, maxVec=256, hiddenLayers=32, nhead=4, lr=1e-4);
+    # __service_privateEval(pt="modelOut/1743485903312685544-1-0.95333331823349.pt", dp=dp, maxVec=256, nhead=4);
     return 0;
 
 

@@ -5,6 +5,8 @@ import pickle;
 import subprocess;
 
 import numpy as np
+import torch
+from sklearn.metrics import f1_score;
 
 __icdDrugMap: List[Dict[str, List[str]] | None] = [None];
 
@@ -159,8 +161,31 @@ def execCmd(cmd: str) -> Tuple[str, str | None]:
     return out.decode(), None if err is None else err.decode();
 
 
+def npF1Torch(gt: np.ndarray, gh: np.ndarray) -> float:
+    assert gt.shape == gh.shape;
+    from torchmetrics.functional import f1_score;
+    return float(f1_score(torch.from_numpy(gh), torch.from_numpy(gt), task="multilabel", num_labels=gt.shape[-1]));
+
+
+def npF1(gt: np.ndarray, yh: np.ndarray) -> float:
+    tp: int = np.sum((gt == 1) & (yh == 1));
+    fp: int = np.sum((gt == 0) & (yh == 1));
+    fn: int = np.sum((gt == 1) & (yh == 0));
+
+    pr: float = tp / (tp + fp);
+    re: float = tp / (tp + fn);
+    return 2 * pr * re / (pr + re + 1e-5);
+
+
 if __name__ == "__main__":
-    print(int2binVec(14, 6));
+    # print(int2binVec(14, 6));
     # with open("../map/ukbIcdFreq.pkl", "rb") as f:
     #     print(tokenizeICD10("I20.9", pickle.load(f)));
+    arr1: np.ndarray = (np.random.random((3, 4, 4)) > 0.5).astype(float);
+    # print(arr1);
+    arr2: np.ndarray = (np.random.random((3, 4, 4)) > 0.5).astype(float);
+    # print(arr2)
+    f1: float = npF1Torch(arr1, arr2)
+    print(f1);
+    print(npF1(arr1, arr2))
 
