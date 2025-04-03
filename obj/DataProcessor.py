@@ -85,13 +85,21 @@ class PtIterable():
     def getBatchNum(self) -> int:
         return len(self.__ptGrouping);
 
-    def split(self, rate: float = .2) -> Tuple[np.ndarray, np.ndarray]:
-        __allIdx: np.ndarray = np.array([False for _ in range(len(self.__ptGrouping))]);
-        __selector: int = int(round(len(self.__ptGrouping) * rate));
-        __test: np.ndarray = np.random.choice(len(self.__ptGrouping), size=__selector, replace=False);
-        # print(__selector, __test.shape);
-        __allIdx[__test] = True;
-        return __allIdx != True, __allIdx;
+    def split(self, rate: float = .2) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        __testIdx: np.ndarray = np.array([False for _ in range(len(self.__ptGrouping))]);
+        __testSelector: int = int(round(len(self.__ptGrouping) * rate));
+        __test: np.ndarray = np.random.choice(len(self.__ptGrouping), size=__testSelector, replace=False);
+        __testIdx[__test] = True;
+
+        __valiIdx: np.ndarray = np.array([False for _ in range(len(self.__ptGrouping))]);
+        __valiSelector: int = int(round(len(self.__ptGrouping) * (1 - rate) * rate));
+        __vali: np.ndarray = np.random.choice(len(self.__ptGrouping) - np.sum(__testIdx), size=__valiSelector, replace=False);
+        # print(np.where(__testIdx != True))
+        # print(__vali)
+        # print(np.where(__testIdx != True)[0][__vali])
+        __valiIdx[np.where(__testIdx != True)[0][__vali]] = True;
+
+        return (__valiIdx == False) & (__testIdx == False), __valiIdx, __testIdx;
 
     def getBatch(self, idx: int) -> List[str]:
         return (self.__ptGrouping[idx]);
@@ -119,6 +127,7 @@ class DataProcessor:
     __tarICD:str;
     __pi: PtIterable;
     __train: np.ndarray;
+    __vali: np.ndarray;
     __test: np.ndarray;
     __medSeqMap: dict[str, int];
     __maxPtId: int;
@@ -142,9 +151,9 @@ class DataProcessor:
                                epgPkl=epgPkl,
                                ebd=ebd);
         self.cwv = self.__pi.cwv;
-        self.__train, self.__test = self.__pi.split();
-        assert np.sum(self.__train | self.__test) == self.__pi.getBatchNum();
-        # print("dp::107", np.sum(self.__train), np.sum(self.__test), self.__pi.getBatchNum());
+        self.__train, self.__vali, self.__test = self.__pi.split();
+        assert np.sum(self.__train | self.__test | self.__vali) == self.__pi.getBatchNum();
+        print("dp::107", np.sum(self.__train), np.sum(self.__vali), np.sum(self.__test), self.__pi.getBatchNum());
         # print("dp::108", self.__pi.countTotalPt(self.__train), self.__pi.countTotalPt(self.__test));
         with open(medSeqMapUri, "rb") as f:
             self.__medSeqMap = pickle.load(f);
@@ -155,8 +164,15 @@ class DataProcessor:
         assert len(maskOH) == len(dt) == len(mask);
         return True;
 
-    def getBatchCount(self, train: bool = True) -> int:
-        return np.sum(self.__train if train else self.__test);
+    def getBatchCount(self, set: int = 0) -> int:
+        if set == 0:
+            return np.sum(self.__train);
+        elif set == 1:
+            return np.sum(self.__vali);
+        elif set == 2:
+            return np.sum(self.__test);
+        else:
+            raise NotImplementedError;
 
     def __service_makePtMatrix(self, x: List[np.ndarray], y: np.ndarray) -> Tuple[
         np.ndarray,     # X
@@ -265,7 +281,7 @@ class DataProcessor:
             ryo[dti, :len(yo)] = yo;
         return rxd, rxm, rxo, ryd, rym, ryo;
 
-    def __getitem__(self, t: Tuple[int, bool]) -> Tuple[
+    def __getitem__(self, t: Tuple[int, int]) -> Tuple[
         np.ndarray,     # X
         np.ndarray,     # X Mask
         np.ndarray,     # X Mask One-hot
@@ -275,8 +291,16 @@ class DataProcessor:
     ]:
         # print(f"dp::218 {t}")
         idx: int = t[0];
-        train: bool = t[1];
-        tarBatch: np.ndarray = self.__train if train else self.__test;
+        set: int = t[1];
+        tarBatch: np.ndarray;
+        if set == 0:
+            tarBatch = self.__train;
+        elif set == 1:
+            tarBatch = self.__vali;
+        elif set == 2:
+            tarBatch = self.__test;
+        else:
+            raise NotImplementedError;
         __allIdx: np.ndarray = np.array([i for i in range(len(tarBatch))], dtype=int);
         if idx >= len(__allIdx[tarBatch]):
             raise IndexError;
@@ -306,10 +330,15 @@ class DataProcessor:
 def main() -> int:
     batchSize: int = 512;
     ebd: KGEmbed = KGEmbed(allPt="../data/allPt.pkl", ukb2db="../map/ukb2db.pkl", db2emd="../data/kgEmb2.pkl", icd="E11");
-    exit();
     dp: DataProcessor = DataProcessor(
-        pkl="../data/allPt.pkl", ebd=ebd, medSeqMapUri="../map/ukbMedTokenize.pkl", icd="E11", batchSize=batchSize
+        pkl="../data/allPt.pkl",
+        ebd=ebd,
+        medSeqMapUri="../map/ukbMedTokenize.pkl",
+        epgPkl=f"../data/E11EmbPtGroup512.pkl",
+        icd="E11",
+        batchSize=batchSize
     );
+    exit(0);
     xd, xm, xo, yd, ym, yo = dp[0, True];
     print(yd.shape)
     return 0;

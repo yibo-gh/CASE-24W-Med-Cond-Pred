@@ -89,9 +89,8 @@ def train(model: nn.Module,
     del ymOriAcc;
     opt.zero_grad();
     loss.backward();
-    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10)
     opt.step();
-    sche.step();
     return loss.item();
 
 
@@ -172,15 +171,15 @@ def __service_iterTrain(model: nn.Module,
                         dp: DataProcessor,
                         loss_fn: nn.Module,
                         opt: torch.optim.Optimizer,
-                        sche: torch.optim.lr_scheduler.Optimizer,
+                        sche: torch.optim.lr_scheduler.LRScheduler,
                         maxVec: int,
                         mFeature: int,
                         dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
                         ) -> float:
     trainLoss: float = 0;
-    for j in range(dp.getBatchCount()):
+    for j in range(dp.getBatchCount(0)):
         # print(f"t::206 Training Batch {j + 1:4d}/{dp.getBatchCount()} of Epoch {i + 1:4d}/{epoch}")
-        xd, xm, xo, yd, ym, yo = dp[j, True];
+        xd, xm, xo, yd, ym, yo = dp[j, 0];
         # print("t::156", xd.shape, xm.shape, xo.shape, yd.shape, ym.shape, yo.shape)
         tLoss: float = train(model,
                              __service_prepDt4training(torch.from_numpy(xd), maxVec, mFeature=0),
@@ -192,6 +191,31 @@ def __service_iterTrain(model: nn.Module,
         trainLoss += tLoss;
         # break;
     return trainLoss;
+
+
+def __service_iterVali(model: nn.Module,
+                       dp: DataProcessor,
+                       loss_fn: nn.Module,
+                       maxVec: int,
+                       mFeature: int,
+                       dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+                       ) -> float:
+    valLoss: float = 0;
+
+    for j in range(dp.getBatchCount(1)):
+        xd, xm, xo, yd, ym, yo = dp[j, 1];
+        loss, _, _, _, _ =(
+            evaluate(model,
+                     __service_prepDt4training(torch.from_numpy(xd), maxVec, mFeature=0),
+                     __service_prepDt4training(torch.from_numpy(xm), maxVec, mFeature=mFeature),
+                     __service_prepDt4training(torch.from_numpy(yd), maxVec, mFeature=0),
+                     __service_prepDt4training(torch.from_numpy(yo), maxVec, mFeature=0, mask=True),
+                     __service_prepDt4training(torch.from_numpy(ym), maxVec, mFeature=0),
+                     loss_fn, dev=dev));
+        # print("t::242", loss, total, corr)
+        valLoss += loss;
+        # break;
+    return valLoss;
 
 
 def __service_iterEval(model: nn.Module,
@@ -207,8 +231,8 @@ def __service_iterEval(model: nn.Module,
     f1List: Tuple[List[np.ndarray]] = ([], []);
     __devCPU: torch.device = torch.device("cpu");
 
-    for j in range(dp.getBatchCount(False)):
-        xd, xm, xo, yd, ym, yo = dp[j, False];
+    for j in range(dp.getBatchCount(2)):
+        xd, xm, xo, yd, ym, yo = dp[j, 2];
         # print("t::169", xd.shape, xm.shape, xo.shape, yd.shape, ym.shape, yo.shape)
         # print(f"t::206 Validating Batch {j + 1:4d}/{dp.getBatchCount(False)} of Epoch {i + 1:4d}/{epoch}")
         loss, total, corr, resT, gtT =(
@@ -235,7 +259,7 @@ def iter(model: nn.Module,
          dp: DataProcessor,
          loss_fn: nn.Module,
          opt: torch.optim.Optimizer | None,
-         sche: torch.optim.lr_scheduler.Optimizer | None,
+         sche: torch.optim.lr_scheduler.LRScheduler | None,
          epoch: int,
          maxVec: int,
          mFeature: int,
@@ -260,6 +284,14 @@ def iter(model: nn.Module,
                 dev=dev
             );
 
+            valiLoss = __service_iterVali(model=model,
+                                          dp=dp,
+                                          loss_fn=loss_fn,
+                                          maxVec=maxVec,
+                                          mFeature=mFeature,
+                                          dev=dev);
+            sche.step(int(round(valiLoss)));
+
         valLoss: float; vTotal: int; vCorr: int;
         valLoss, vTotal, vCorr, f1 = __service_iterEval(
             model=model,
@@ -270,11 +302,21 @@ def iter(model: nn.Module,
             dev=dev
         );
 
-        print(f"Epoch {i + 1:4d}/{epoch} - Train Loss: {trainLoss:.4f}, Validation Loss: {valLoss:.4f}, Validation Acc: {vCorr * 100 / vTotal:5.2f}%", end="");
-        if isinstance(f1, float):
-            print(f", F-1: {f1 * 100:5.2f}%");
+        if not evalOnly:
+            print(
+                f"Epoch {i + 1:4d}/{epoch} - "
+                f"LR: {sche.get_last_lr()}, "
+                f"Train Loss: {trainLoss:.4f}, "
+                f"Validation Loss: {valLoss:.4f}, "
+                f"Validation Acc: {vCorr * 100 / vTotal:5.2f}%, "
+                f"F-1: {f1 * 100:5.2f}%");
+
         else:
-            print(f"F-1 Matrix:\n{f1 * 100}");
+            print(
+                f"Epoch {i + 1:4d}/{epoch} - "
+                f"Validation Loss: {valLoss:.4f}, "
+                f"Validation Acc: {vCorr * 100 / vTotal:5.2f}%, "
+                f"F-1: {f1 * 100:5.2f}%");
         if math.isnan(trainLoss) or math.isnan(valLoss):
             return;
         if not save:

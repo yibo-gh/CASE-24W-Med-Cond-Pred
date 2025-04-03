@@ -525,7 +525,8 @@ def __service_privateEval(dp: DataProcessor, pt: str,
 
 def __service_privateTrain(dp: DataProcessor,
                            nhead: int = 4,
-                           hiddenLayers: int = 512,
+                           # hiddenLayers: int = 512,
+                           hiddenLayers: int = 256,
                            maxVec: int = 128,
                            lr: float = 5e-6) -> int:
 
@@ -550,7 +551,9 @@ def __service_privateTrain(dp: DataProcessor,
         pos_weight=torch.tensor(dp.cwv, dtype=torch.float).to(dev)
     );
     opt: torch.optim.Optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9);
-    scheduler = torch.optim.lr_scheduler.StepLR(opt, step_size=5, gamma=0.9);
+    scheduler: torch.optim.lr_scheduler.LRScheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        opt, mode='min', factor=0.5, patience=3
+    );
     print("m::512", torch.cuda.is_available(), dev);
     model.to(dev);
     iter(model,
@@ -560,7 +563,7 @@ def __service_privateTrain(dp: DataProcessor,
          mFeature = dModel,
          epoch=250,
          dev=dev,
-         save=False);
+         save=True);
     return 0;
 
 
