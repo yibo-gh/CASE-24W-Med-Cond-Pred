@@ -493,7 +493,7 @@ def __service_privateEval(dp: DataProcessor, pt: str,
     maxXCol: int = __xm.shape[-1];
     dModel: int = (int(maxXCol / nhead) + (1 if maxXCol % nhead != 0 else 0)) * nhead;
 
-    model: MedTrans = MedTrans(
+    '''model: MedTrans = MedTrans(
         maxXCol,
         __recIcdMedCount,
         dModel,
@@ -503,9 +503,14 @@ def __service_privateEval(dp: DataProcessor, pt: str,
         batched=True
     );
     model.setMedMat(dp.getMedMat());
-    model.load_state_dict(torch.load(pt, weights_only=True));
-    lossFn: torch.nn.Module = torch.nn.BCEWithLogitsLoss(reduction="none");
+    model.load_state_dict(torch.load(pt, weights_only=True));'''
+
+    model: MedTrans = torch.load(pt);
+    model.setMedMat(dp.getMedMat());
     dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu");
+    model.to(dev);
+
+    lossFn: torch.nn.Module = torch.nn.BCEWithLogitsLoss(reduction="none");
     maxXCol: int = __xm.shape[-1];
     dModel: int = (int(maxXCol / nhead) + (1 if maxXCol % nhead != 0 else 0)) * nhead;
 
@@ -525,8 +530,7 @@ def __service_privateEval(dp: DataProcessor, pt: str,
 
 def __service_privateTrain(dp: DataProcessor,
                            nhead: int = 4,
-                           # hiddenLayers: int = 512,
-                           hiddenLayers: int = 256,
+                           hiddenLayers: int = 512,
                            maxVec: int = 128,
                            lr: float = 5e-6) -> int:
 
@@ -542,17 +546,19 @@ def __service_privateTrain(dp: DataProcessor,
         nhead,
         hiddenLayers,
         maxVecSize=maxVec,
-        batched=True
+        batched=True,
+        medMat=dp.getMedMat()
     );
-    model.setMedMat(dp.getMedMat());
+    # model.setMedMat(dp.getMedMat());
     dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu");
     lossFn: torch.nn.Module = torch.nn.BCEWithLogitsLoss(
         reduction="none",
+        # pos_weight=torch.clamp(torch.tensor(dp.cwv, dtype=torch.float).to(dev), max=20.0)
         pos_weight=torch.tensor(dp.cwv, dtype=torch.float).to(dev)
     );
     opt: torch.optim.Optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9);
     scheduler: torch.optim.lr_scheduler.LRScheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        opt, mode='min', factor=0.5, patience=3
+        opt, mode='min', factor=0.8, patience=10
     );
     print("m::512", torch.cuda.is_available(), dev);
     model.to(dev);
@@ -588,8 +594,8 @@ def main() -> int:
         batchSize=batchMaxVec
     );
     print("m::530 starting training")
-    __service_privateTrain(dp=dp, maxVec=256, hiddenLayers=32, nhead=4, lr=1e-4);
-    # __service_privateEval(pt="modelOut/1743485903312685544-1-0.95333331823349.pt", dp=dp, maxVec=256, nhead=4);
+    __service_privateTrain(dp=dp, maxVec=256, hiddenLayers=2, nhead=4, lr=1e-3);
+    #__service_privateEval(pt="modelOut/1743699483456029566-1-0.19074810224998387.pt", dp=dp, maxVec=256, nhead=4);
     return 0;
 
 

@@ -177,6 +177,67 @@ def npF1(gt: np.ndarray, yh: np.ndarray) -> float:
     return 2 * pr * re / (pr + re + 1e-5);
 
 
+def __service_npFlatten(dt: np.ndarray) -> np.ndarray:
+    if len(dt.shape) < 3:
+        return dt;
+    return np.concatenate([dt[i] for i in range(len(dt))]);
+
+
+def auroc(gt: np.ndarray, yh: np.ndarray) -> float:
+    aucs = []
+    for _gt, pred in zip(gt, yh):
+        pos_idx = np.where(_gt == 1)[0]
+        neg_idx = np.where(_gt == 0)[0]
+        # 如果没有正例或负例，则跳过
+        if len(pos_idx) == 0 or len(neg_idx) == 0:
+            continue
+        # 计算 pairwise 差值：对于每个正例与每个负例比较
+        diff = pred[pos_idx][:, None] - pred[neg_idx][None, :]
+        # 正例分数大于负例的个数，加上相等的 0.5 份
+        correct = np.sum(diff > 0) + 0.5 * np.sum(diff == 0)
+        auc = correct / (len(pos_idx) * len(neg_idx))
+        aucs.append(auc)
+    return float(np.nanmean(aucs)) if aucs else float('nan')
+
+def auprc(gt: np.ndarray, yh: np.ndarray) -> float:
+    aps = []
+    for _gt, pred in zip(gt, yh):
+        order = np.argsort(-pred)  # 降序排列预测得分的索引
+        sorted_gt = _gt[order]
+        # 累计求和，得到每个位置上的 TP 数量
+        cum_tp = np.cumsum(sorted_gt)
+        total_pos = np.sum(sorted_gt)
+        if total_pos == 0:
+            continue
+        precision = cum_tp / (np.arange(1, len(sorted_gt) + 1))
+        ap = np.sum(precision * sorted_gt) / total_pos
+        aps.append(ap)
+    return float(np.nanmean(aps)) if aps else float('nan')
+
+
+def mrr(gt: np.ndarray, yh: np.ndarray) -> float:
+    mrrs = []
+    for _gt, pred in zip(gt, yh):
+        order = np.argsort(-pred)  # 降序排序
+        found = False
+        for rank, idx in enumerate(order, start=1):
+            if _gt[idx] == 1:
+                mrrs.append(1.0 / rank)
+                found = True
+                break
+        if not found:
+            mrrs.append(0.0)
+    return float(np.mean(mrrs)) if mrrs else float('nan')
+
+
+def histk(gt: np.ndarray, yh: np.ndarray, k: int) -> float:
+    hits = []
+    for _gt, pred in zip(gt, yh):
+        topk_indices = np.argsort(-pred)[:k]
+        hits.append(np.sum(_gt[topk_indices]))
+    return float(np.mean(hits))
+
+
 if __name__ == "__main__":
     # print(int2binVec(14, 6));
     # with open("../map/ukbIcdFreq.pkl", "rb") as f:

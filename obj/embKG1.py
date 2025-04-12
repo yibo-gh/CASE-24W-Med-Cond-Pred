@@ -93,8 +93,11 @@ class KGEmbed(Embedder):
                 except:
                     totalUse[i] += __tmpMedMap[ml];
                     _dupDict[i] = 0;
-        _cwv: List[float] = [(__totalQualifingPt - _var + 1e-5) / (_var + 1e-5) for _var in totalUse];
-        self.cwv = np.array(_cwv);
+        _eps: float = 1e-8;
+        _cwv: List[float] = [(__totalQualifingPt - _var + _eps) / (_var + _eps) for _var in totalUse];
+        self.cwv = np.log(np.array(_cwv) + 1);
+        # self.cwv = np.array(_cwv);
+        self.cwv = (self.cwv - np.min(self.cwv)) / (np.max(self.cwv) - np.min(self.cwv) + _eps) * (100 - _eps) + _eps + 1;
 
         return;
 

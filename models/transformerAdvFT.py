@@ -113,14 +113,14 @@ class SafeTransformerEncoderLayer(nn.TransformerEncoderLayer):
 
 class MedTrans(nn.Module):
 
-    def __service_hookFn(self, module, input, output):
+    '''def __service_hookFn(self, module, input, output):
         if torch.isnan(output[0]).any():
             print(f"NaN detected in module: {module}")
             exit(254)
         if isinstance(output, torch.Tensor):
             clamped = torch.clamp(output, min=-10, max=10)
             return torch.nn.functional.softmax(clamped, dim=-1)
-        return output;
+        return output;'''
 
     def __init__(self,
                  input_dim: int,
@@ -130,7 +130,8 @@ class MedTrans(nn.Module):
                  num_layers: int,
                  maxVecSize: int = 128,
                  dropout: float=0.1,
-                 batched: bool = False) -> None:
+                 batched: bool = False,
+                 medMat: np.ndarray | None = None) -> None:
         super().__init__();
 
         # print(f"tv::80 d_model {d_model}")
@@ -142,7 +143,7 @@ class MedTrans(nn.Module):
         self.numLayers: int = num_layers;
         self.maxVec: int = maxVecSize;
         self.dropout: float = dropout;
-        self.medMat: torch.Tensor | None = None;
+        self.medMat: torch.Tensor | None = torch.from_numpy(medMat.astype(np.float32)) if medMat is not None else None;
 
         # print("tv::90", input_dim, d_model)
         self.linear_proj = nn.Linear(input_dim, d_model);
@@ -155,14 +156,44 @@ class MedTrans(nn.Module):
         # for layer in self.transformer_encoder.layers:
         #     layer.self_attn.register_forward_hook(self.__service_hookFn);
 
-        self.t2m1 = None
-        self.t2m2 = None
+        self.t2m1 = nn.Linear(208, self.medMat.size(-1));
+        self.t2m3 = nn.Linear(208, 256);
+        self.t2m4 = nn.Linear(256, 256);
+        self.t2m5 = nn.Linear(256, self.medMat.size(-1));
+        self.t2m2 = nn.Linear(self.medMat.size(-1), self.medMat.size(-1));
+
+        self.relu = nn.ReLU();
+
+        '''self.ptMedConv = nn.Sequential(
+            nn.Linear(208, 256),
+            nn.ReLU(),
+            nn.LayerNorm(256),           # 🚨 加一个 norm 稳定训练
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Dropout(0.1),             # 🚨 可选防止过拟合
+            nn.Linear(256, self.medMat.size(-1))
+        )'''
+        '''self.ptMedConv = nn.Sequential(
+            nn.Linear(208, self.medMat.size(-1))
+        )'''
+        self.ptMedConv = nn.Sequential(
+            # nn.LayerNorm(208),
+            nn.Linear(208, 512),
+            # nn.Dropout(.1),
+            # nn.ReLU(),
+            nn.Linear(512, 512),
+            nn.Linear(512, 512),
+            # nn.Dropout(.1),
+            # nn.LayerNorm(208),
+            nn.Linear(512, self.medMat.size(-1))
+        )
 
     def setMedMat(self, dt: np.ndarray) -> None:
+        # self.medMat = torch.nn.functional.normalize(torch.from_numpy(dt.astype(np.float32)), dim=-1);
         self.medMat = torch.from_numpy(dt.astype(np.float32));
-
-        self.t2m1 = nn.Linear(208, self.medMat.size(-1));
-        self.t2m2 = nn.Linear(self.medMat.size(-1), self.medMat.size(-1));
+        self.ptMedConv = nn.Sequential(
+            nn.Linear(208, self.medMat.size(-1))
+        )
 
     def forward(self, x: torch.Tensor, xm: torch.Tensor, vecSelector: torch.Tensor, dev: torch.device) -> torch.Tensor:
         assert self.medMat is not None and len(x.shape) == 3;
@@ -174,9 +205,9 @@ class MedTrans(nn.Module):
         transformer_output = self.transformer_encoder(x_emb, mask=None, src_key_padding_mask=skpm);
         assert torch.sum(torch.sum(vecSelector, dim=-1) == 1) == len(transformer_output);
 
-        itmd: torch.Tensor = self.t2m1(transformer_output);
-        for _ in range(2):
-            itmd = self.t2m2(itmd);
+        # print(transformer_output.shape)
+        itmd: torch.Tensor = self.ptMedConv(transformer_output);
+
         itmd = itmd.sum(dim=-2);
         itmd = itmd.matmul(self.medMat.to(dev).t())
 

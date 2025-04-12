@@ -10,7 +10,7 @@ import torch.nn as nn;
 from torchmetrics.functional import f1_score;
 
 from obj.DataProcessor import DataProcessor;
-from util.util import npF1;
+from util.util import npF1, auroc, auprc, mrr, histk;
 
 class PtDS(Dataset):
 
@@ -94,6 +94,21 @@ def train(model: nn.Module,
     return loss.item();
 
 
+def register_forward_hooks(model):
+    hooks = []
+
+    def hook_fn(module, input, output):
+        name = module.__class__.__name__
+        print(f"{name:<30} | input: {tuple(input[0].shape)} → output: {tuple(output.shape)}")
+
+    for name, module in model.named_modules():
+        if len(list(module.children())) == 0:  # 只 hook 到底层（无子模块）层
+            h = module.register_forward_hook(hook_fn)
+            hooks.append(h)
+
+    return hooks
+
+
 def evaluate(model: nn.Module,
              X: torch.Tensor, xm: torch.Tensor,
              y: torch.Tensor, ym: torch.Tensor, yOri: torch.Tensor,
@@ -105,7 +120,10 @@ def evaluate(model: nn.Module,
     if True:
         # res = outAct(model(X.to(dev), xm.to(dev), ym.to(dev), dev).cpu(), dim=-1);
         _ymd: torch.Tensor = ym.to(dev);
+        # register_forward_hooks(model);
         res: torch.Tensor = model(X.to(dev), xm.to(dev), _ymd.to(dev), dev);
+        # print("t::109", X.shape, xm.shape, _ymd.shape);
+        # exit(0)
         ymOriAcc: torch.Tensor = yOri.to(torch.int);
         loss = lossFn(res[ym == 1], y.to(dev)[_ymd == 1]).sum() / ymOriAcc.sum();
         del ymOriAcc;
@@ -204,14 +222,14 @@ def __service_iterVali(model: nn.Module,
 
     for j in range(dp.getBatchCount(1)):
         xd, xm, xo, yd, ym, yo = dp[j, 1];
-        loss, _, _, _, _ =(
+        loss =(
             evaluate(model,
                      __service_prepDt4training(torch.from_numpy(xd), maxVec, mFeature=0),
                      __service_prepDt4training(torch.from_numpy(xm), maxVec, mFeature=mFeature),
                      __service_prepDt4training(torch.from_numpy(yd), maxVec, mFeature=0),
                      __service_prepDt4training(torch.from_numpy(yo), maxVec, mFeature=0, mask=True),
                      __service_prepDt4training(torch.from_numpy(ym), maxVec, mFeature=0),
-                     loss_fn, dev=dev));
+                     loss_fn, dev=dev))[0];
         # print("t::242", loss, total, corr)
         valLoss += loss;
         # break;
@@ -224,7 +242,7 @@ def __service_iterEval(model: nn.Module,
                        maxVec: int,
                        mFeature: int,
                        dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-                       ) -> Tuple[float, int, int, float | List[float]]:
+                       ) -> Tuple[float, int, int, float | List[float], float, float, float, float, float]:
     valLoss: float = 0;
     vTotal: int = 0;
     vCorr: int = 0;
@@ -251,8 +269,14 @@ def __service_iterEval(model: nn.Module,
         f1List[1].append(gtT.cpu().detach().numpy())
         del resT; del gtT;
         # break;
-    f1: float = npF1(np.concatenate(f1List[1]), np.concatenate(f1List[0]));
-    return valLoss, vTotal, vCorr, f1;
+    gt, yh = np.concatenate(f1List[1]), np.concatenate(f1List[0]);
+    f1: float = npF1(gt, yh);
+    roc: float = auroc(gt, yh);
+    prc: float = auprc(gt, yh);
+    mrs: float = mrr(gt, yh);
+    his5: float = histk(gt, yh, 5);
+    his10: float = histk(gt, yh, 10);
+    return valLoss, vTotal, vCorr, f1, roc, prc, mrs, his5, his10;
 
 
 def iter(model: nn.Module,
@@ -268,7 +292,7 @@ def iter(model: nn.Module,
          modelDir: str = "modelOut",
          evalOnly: bool = False) -> None:
 
-    __bestF1: float = 0;
+    __bestMet: float = 0;
     for i in range(epoch):
         trainLoss: float = 0;
         if not evalOnly:
@@ -293,7 +317,7 @@ def iter(model: nn.Module,
             sche.step(int(round(valiLoss)));
 
         valLoss: float; vTotal: int; vCorr: int;
-        valLoss, vTotal, vCorr, f1 = __service_iterEval(
+        valLoss, vTotal, vCorr, f1, roc, prc, mrr, his5, his10 = __service_iterEval(
             model=model,
             dp=dp,
             loss_fn=loss_fn,
@@ -304,24 +328,35 @@ def iter(model: nn.Module,
 
         if not evalOnly:
             print(
-                f"Epoch {i + 1:4d}/{epoch} - "
+                f"Ep {i + 1:4d}/{epoch} - "
                 f"LR: {sche.get_last_lr()}, "
-                f"Train Loss: {trainLoss:.4f}, "
-                f"Validation Loss: {valLoss:.4f}, "
-                f"Validation Acc: {vCorr * 100 / vTotal:5.2f}%, "
-                f"F-1: {f1 * 100:5.2f}%");
+                f"TrL: {trainLoss:.4f}, "
+                f"VL: {valiLoss:.4f}, "
+                f"TeL: {valLoss:.4f}, "
+                f"TeA: {vCorr * 100 / vTotal:5.2f}%, "
+                f"F-1: {f1 * 100:5.2f}%, "
+                f"AUROC {roc * 100:5.2f}%, "
+                f"AUPRC {prc * 100:5.2f}%, "
+                f"MRR {mrr * 100:5.2f}%, "
+                f"Hist-5 {his5 * 100:5.2f}%, "
+                f"Hist-10 {his10 * 100:5.2f}%");
 
         else:
             print(
-                f"Epoch {i + 1:4d}/{epoch} - "
-                f"Validation Loss: {valLoss:.4f}, "
-                f"Validation Acc: {vCorr * 100 / vTotal:5.2f}%, "
-                f"F-1: {f1 * 100:5.2f}%");
-        if math.isnan(trainLoss) or math.isnan(valLoss):
+                f"Ep {i + 1:4d}/{epoch} - "
+                f"TeL: {valLoss:.4f}, "
+                f"TeA: {vCorr * 100 / vTotal:5.2f}%, "
+                f"F-1: {f1 * 100:5.2f}%, "
+                f"AUROC {roc * 100:5.2f}%, "
+                f"AUPRC {prc * 100:5.2f}%, "
+                f"MRR {mrr * 100:5.2f}%, "
+                f"Hist-5 {his5 * 100:5.2f}%, "
+                f"Hist-10 {his10 * 100:5.2f}%");
+        if evalOnly or math.isnan(trainLoss) or math.isnan(valLoss):
             return;
         if not save:
             continue;
-        if f1 > __bestF1:
-            __bestF1 = f1;
-            torch.save(model, f"{modelDir}/{time.time_ns()}-{i + 1}-{f1}.pt");
+        if mrr > __bestMet:
+            __bestMet = mrr;
+            torch.save(model, f"{modelDir}/{time.time_ns()}-{i + 1}-{mrr}.pt");
 
