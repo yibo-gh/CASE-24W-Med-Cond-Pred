@@ -7,6 +7,7 @@ import subprocess;
 import numpy as np
 import torch
 from sklearn.metrics import f1_score;
+import matplotlib.pyplot as plt;
 
 __icdDrugMap: List[Dict[str, List[str]] | None] = [None];
 
@@ -197,7 +198,8 @@ def auroc(gt: np.ndarray, yh: np.ndarray) -> float:
         correct = np.sum(diff > 0) + 0.5 * np.sum(diff == 0)
         auc = correct / (len(pos_idx) * len(neg_idx))
         aucs.append(auc)
-    return float(np.nanmean(aucs)) if aucs else float('nan')
+    # print(f"u::200 roc {np.quantile(aucs, [0, .25, .5, .75, .9, .95])}")
+    return aucs, float(np.nanmean(aucs)) if aucs else float('nan')
 
 def auprc(gt: np.ndarray, yh: np.ndarray) -> float:
     aps = []
@@ -212,7 +214,8 @@ def auprc(gt: np.ndarray, yh: np.ndarray) -> float:
         precision = cum_tp / (np.arange(1, len(sorted_gt) + 1))
         ap = np.sum(precision * sorted_gt) / total_pos
         aps.append(ap)
-    return float(np.nanmean(aps)) if aps else float('nan')
+    # print(f"u::216 prc {np.quantile(aps, [0, .25, .5, .75, .9, .95])}")
+    return aps, float(np.nanmean(aps)) if aps else float('nan')
 
 
 def mrr(gt: np.ndarray, yh: np.ndarray) -> float:
@@ -236,6 +239,83 @@ def histk(gt: np.ndarray, yh: np.ndarray, k: int) -> float:
         topk_indices = np.argsort(-pred)[:k]
         hits.append(np.sum(_gt[topk_indices]))
     return float(np.mean(hits))
+
+
+def plot_confidence_heatmap(conf: np.ndarray, gt: np.ndarray, title: str = "Confidence and Ground Truth Heatmap", fname: str | None = None):
+    """
+    绘制 heatmap，横轴为标签，纵轴为样本，
+    上半部分显示模型 confidence scores 的热力图，
+    同时用点或标记显示 ground truth 为 1 的位置。
+    """
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    # 显示 confidence scores 的 heatmap
+    cax = ax.imshow(conf, aspect='auto', cmap='viridis')
+    fig.colorbar(cax, ax=ax, label='Confidence Score')
+
+    # 在 heatmap 上叠加 ground truth 位置。用红色圆点标出位置
+    # 遍历每个元素，如果 gt==1，则在对应位置画一个红点
+    N, num_labels = gt.shape
+    for i in range(N):
+        for j in range(num_labels):
+            if gt[i, j] == 1:
+                ax.plot(j, i, 'ro', markersize=3)
+
+    ax.set_xlabel("Label Index")
+    ax.set_ylabel("Sample Index")
+    ax.set_title(title)
+    plt.tight_layout()
+    if fname is not None:
+        plt.savefig(fname)
+
+
+def plot_sorted_metrics(auroc: np.ndarray, auprc: np.ndarray, fname: str | None = None):
+    """
+    将传进来的 auroc 和 auprc 数组（1D，每个元素代表一个样本或者类别的值）
+    分别按照从高到低排序，然后绘制曲线图进行对比。
+    """
+    # 对指标进行排序
+    sorted_auroc = np.sort(auroc)
+    sorted_auprc = np.sort(auprc)
+
+    # 生成 x 轴序号
+    x = np.arange(len(sorted_auroc))
+
+    # 绘制图形
+    plt.figure(figsize=(8, 6))
+    plt.plot(x, sorted_auroc, label="Sorted AUROC", marker='o')
+    plt.plot(x, sorted_auprc, label="Sorted AUPRC", marker='x')
+    plt.xlabel("Sorted Index")
+    plt.ylabel("Metric Value")
+    plt.title("Sorted AUROC and AUPRC Curves")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    # plt.show()
+
+    if fname is not None:
+        plt.savefig(fname)
+
+
+def detect_metric_outliers(metric_values: np.ndarray, z_thresh: float = 2.0):
+    """
+    检测一个1D数组中的异常值（outlier），利用 z-score 方法。
+
+    参数：
+      metric_values: 1D NumPy 数组（例如每个类别的 AUROC 值）
+      z_thresh: z-score 阈值，默认2.0（即离均值超过2个标准差的视为异常）
+
+    返回：
+      outlier_indices: 一个1D数组，包含异常值的索引
+      z_scores: 对所有数值计算的 z-score 数组
+    """
+    mean_val = np.mean(metric_values)
+    std_val = np.std(metric_values)
+    if std_val == 0:
+        return np.array([], dtype=int), np.zeros_like(metric_values)
+    z_scores = (metric_values - mean_val) / std_val
+    outlier_indices = np.where(np.abs(z_scores) > z_thresh)[0]
+    return outlier_indices, z_scores
 
 
 if __name__ == "__main__":

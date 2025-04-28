@@ -1,6 +1,7 @@
 
 import os.path
 import sys
+import time
 from typing import List, Tuple, Dict, Callable;
 
 import pickle;
@@ -506,7 +507,7 @@ def __service_privateEval(dp: DataProcessor, pt: str,
     model.load_state_dict(torch.load(pt, weights_only=True));'''
 
     model: MedTrans = torch.load(pt);
-    model.setMedMat(dp.getMedMat());
+    # model.setMedMat(dp.getMedMat());
     dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu");
     model.to(dev);
 
@@ -562,6 +563,8 @@ def __service_privateTrain(dp: DataProcessor,
     );
     print("m::512", torch.cuda.is_available(), dev);
     model.to(dev);
+
+    _tarDir: str = f"modelOut/{time.time_ns()}";
     iter(model,
          dp,
          lossFn, opt, scheduler,
@@ -569,7 +572,7 @@ def __service_privateTrain(dp: DataProcessor,
          mFeature = dModel,
          epoch=250,
          dev=dev,
-         save=True);
+         save=_tarDir);
     return 0;
 
 
@@ -577,25 +580,35 @@ def main() -> int:
     os.environ["CUDA_LAUNCH_BLOCKING"] = "1";
     batchMaxVec: int = 512;
     icd: str = "E11";
-    print("m::523 loading embedder")
-    ebd: KGEmbed = KGEmbed(
-        allPt="data/allPt.pkl",
-        ukb2db="map/ukb2db.pkl",
-        db2emd="data/kgEmb2.pkl",
-        icd="E11"
-    );
-    print("m::526 loading data processor")
-    dp: DataProcessor = DataProcessor(
-        pkl="data/allPt.pkl",
-        ebd=ebd,
-        medSeqMapUri="map/ukbMedTokenize.pkl",
-        epgPkl=f"data/{icd}EmbPtGroup{batchMaxVec}.pkl",
-        icd=icd,
-        batchSize=batchMaxVec
-    );
-    print("m::530 starting training")
-    __service_privateTrain(dp=dp, maxVec=256, hiddenLayers=2, nhead=4, lr=1e-3);
-    #__service_privateEval(pt="modelOut/1743699483456029566-1-0.19074810224998387.pt", dp=dp, maxVec=256, nhead=4);
+    evalOnly: bool = True;
+
+    if not evalOnly:
+        print("m::523 loading embedder")
+        ebd: KGEmbed = KGEmbed(
+            allPt="data/allPt.pkl",
+            ukb2db="map/ukb2db.pkl",
+            db2emd="data/kgEmb2.pkl",
+            icd="E11"
+        );
+        print("m::526 loading data processor")
+        # 331: 13 (Metformin)
+        # 030: (Insuline)
+        dp: DataProcessor = DataProcessor(
+            pkl="data/allPt.pkl",
+            ebd=ebd,
+            medSeqMapUri="map/ukbMedTokenize.pkl",
+            epgPkl=f"data/{icd}EmbPtGroup{batchMaxVec}.pkl",
+            icd=icd,
+            batchSize=batchMaxVec
+        );
+        print("m::530 starting training")
+        __service_privateTrain(dp=dp, maxVec=256, hiddenLayers=2, nhead=4, lr=1e-3);
+        return 0;
+    else:
+        print("m::608 Loading eval")
+        __service_privateEval(pt="modelOut/1744601857317117628/10.pt",
+                              dp=pickle.load(open("modelOut/1744601857317117628/dp.pkl", "rb")),
+                              maxVec=256, nhead=4);
     return 0;
 
 

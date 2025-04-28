@@ -1,4 +1,6 @@
 import math
+import os.path
+import pickle
 import time
 from typing import Tuple, List, Dict, Callable;
 
@@ -10,7 +12,7 @@ import torch.nn as nn;
 from torchmetrics.functional import f1_score;
 
 from obj.DataProcessor import DataProcessor;
-from util.util import npF1, auroc, auprc, mrr, histk;
+from util.util import npF1, auroc, auprc, mrr, histk, execCmd, plot_confidence_heatmap, plot_sorted_metrics, detect_metric_outliers;
 
 class PtDS(Dataset):
 
@@ -242,7 +244,7 @@ def __service_iterEval(model: nn.Module,
                        maxVec: int,
                        mFeature: int,
                        dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-                       ) -> Tuple[float, int, int, float | List[float], float, float, float, float, float]:
+                       ) -> Tuple[np.ndarray, np.ndarray, float, int, int, float | List[float], float, float, float, float, float]:
     valLoss: float = 0;
     vTotal: int = 0;
     vCorr: int = 0;
@@ -271,12 +273,12 @@ def __service_iterEval(model: nn.Module,
         # break;
     gt, yh = np.concatenate(f1List[1]), np.concatenate(f1List[0]);
     f1: float = npF1(gt, yh);
-    roc: float = auroc(gt, yh);
-    prc: float = auprc(gt, yh);
+    _, roc = auroc(gt, yh);
+    _, prc = auprc(gt, yh);
     mrs: float = mrr(gt, yh);
     his5: float = histk(gt, yh, 5);
     his10: float = histk(gt, yh, 10);
-    return valLoss, vTotal, vCorr, f1, roc, prc, mrs, his5, his10;
+    return gt, yh, valLoss, vTotal, vCorr, f1, roc, prc, mrs, his5, his10;
 
 
 def iter(model: nn.Module,
@@ -288,11 +290,15 @@ def iter(model: nn.Module,
          maxVec: int,
          mFeature: int,
          dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
-         save: bool = True,
-         modelDir: str = "modelOut",
+         save: str | None = None,
          evalOnly: bool = False) -> None:
 
     __bestMet: float = 0;
+    if save is not None and not os.path.exists(save):
+        os.mkdir(save);
+        execCmd(f"cp models/trans* {save}/");
+        with open(f"{save}/dp.pkl", "wb") as f:
+            pickle.dump(dp, f);
     for i in range(epoch):
         trainLoss: float = 0;
         if not evalOnly:
@@ -317,7 +323,7 @@ def iter(model: nn.Module,
             sche.step(int(round(valiLoss)));
 
         valLoss: float; vTotal: int; vCorr: int;
-        valLoss, vTotal, vCorr, f1, roc, prc, mrr, his5, his10 = __service_iterEval(
+        gt, yh, valLoss, vTotal, vCorr, f1, roc, prc, mrr, his5, his10 = __service_iterEval(
             model=model,
             dp=dp,
             loss_fn=loss_fn,
@@ -326,37 +332,90 @@ def iter(model: nn.Module,
             dev=dev
         );
 
+        _msg: str;
         if not evalOnly:
-            print(
-                f"Ep {i + 1:4d}/{epoch} - "
-                f"LR: {sche.get_last_lr()}, "
-                f"TrL: {trainLoss:.4f}, "
-                f"VL: {valiLoss:.4f}, "
-                f"TeL: {valLoss:.4f}, "
-                f"TeA: {vCorr * 100 / vTotal:5.2f}%, "
-                f"F-1: {f1 * 100:5.2f}%, "
-                f"AUROC {roc * 100:5.2f}%, "
-                f"AUPRC {prc * 100:5.2f}%, "
-                f"MRR {mrr * 100:5.2f}%, "
-                f"Hist-5 {his5 * 100:5.2f}%, "
-                f"Hist-10 {his10 * 100:5.2f}%");
-
+            _msg = (f"Ep {i + 1:4d}/{epoch} - " +
+                    f"LR: {sche.get_last_lr()}, "+
+                    f"TrL: {trainLoss:.4f}, " +
+                    f"VL: {valiLoss:.4f}, " +
+                    f"TeL: {valLoss:.4f}, " +
+                    f"TeA: {vCorr * 100 / vTotal:5.2f}%, " +
+                    f"F-1: {f1 * 100:5.2f}%, " +
+                    f"AUROC {roc * 100:5.2f}%, " +
+                    f"AUPRC {prc * 100:5.2f}%, " +
+                    f"MRR {mrr * 100:5.2f}%, " +
+                    f"Hist-5 {his5 * 100:5.2f}%, " +
+                    f"Hist-10 {his10 * 100:5.2f}%");
+            print(_msg);
         else:
-            print(
-                f"Ep {i + 1:4d}/{epoch} - "
-                f"TeL: {valLoss:.4f}, "
-                f"TeA: {vCorr * 100 / vTotal:5.2f}%, "
-                f"F-1: {f1 * 100:5.2f}%, "
-                f"AUROC {roc * 100:5.2f}%, "
-                f"AUPRC {prc * 100:5.2f}%, "
-                f"MRR {mrr * 100:5.2f}%, "
-                f"Hist-5 {his5 * 100:5.2f}%, "
-                f"Hist-10 {his10 * 100:5.2f}%");
+            _msg = (f"Ep {i + 1:4d}/{epoch} - " +
+                    f"TeL: {valLoss:.4f}, " +
+                    f"TeA: {vCorr * 100 / vTotal:5.2f}%, " +
+                    f"F-1: {f1 * 100:5.2f}%, " +
+                    f"AUROC {roc * 100:5.2f}%, " +
+                    f"AUPRC {prc * 100:5.2f}%, " +
+                    f"MRR {mrr * 100:5.2f}%, " +
+                    f"Hist-5 {his5 * 100:5.2f}%, " +
+                    f"Hist-10 {his10 * 100:5.2f}%");
+            print(_msg);
+            # plot_confidence_heatmap(yh, gt, fname="heatmap.png");
+            _allRoc, _ = auroc(gt, yh);
+            _allPrc, _ = auprc(gt, yh);
+            plot_sorted_metrics(_allRoc, _allPrc, fname="metPlot.png")
+
+            rocOl: np.ndarray = detect_metric_outliers(_allRoc)[0];
+            prcOl: np.ndarray = detect_metric_outliers(_allPrc, z_thresh=1.5)[0];
+            print(f"t::367 roc {np.quantile(_allRoc, [0, .25, .5, .75, .9, .95])}")
+            print(np.where(_allRoc == np.min(_allRoc))[0]);
+            # print(f"t::368 {rocOl}");
+            print(f"t::369 prc {np.quantile(_allPrc, [0, .25, .5, .75, .9, .95])}")
+            # print(f"t::370 {prcOl}");
+
+            _testsetPtid: np.ndarray = np.zeros(0);
+            for j in range(dp.getBatchCount(2)):
+                _testsetPtid = np.concatenate((_testsetPtid, dp[j, 2][0][:, 0, 0]));
+
+            roc2, roc3 = np.quantile(_allRoc, [.5, .75])
+            prc2, prc3 = np.quantile(_allPrc, [.5, .75])
+            # print(f"t::380 {np.where((roc2 <= _allRoc) & (_allRoc <= roc3))}")
+            # print(f"t::381 {np.where((prc2 <= _allPrc) & (_allPrc <= prc3))}")
+            commonPool: np.ndarray = np.intersect1d(np.where((roc2 <= _allRoc) & (_allRoc <= roc3))[0], np.where((prc2 <= _allPrc) & (_allPrc <= prc3))[0])
+            # print(f"t::383 Common typical {commonPool}")
+
+            '''
+            1743 SexAtBirth.Male 1941 1 1001
+1749 SexAtBirth.Male 1942 1 1001
+            '''
+            # print(yh[1743])
+            # print(np.argsort(-yh[1743]))
+            # print(np.where(gt[1743] == 1)[0])
+            # print(yh[1749])
+            # print(np.argsort(-yh[1749]))
+            # print(np.where(gt[1749] == 1)[0])
+
+            from obj.pt import Pt, EvtClass;
+            with open("data/allPt.pkl", "rb") as f:
+                allPt: Dict[str, Pt] = pickle.load(f);
+            for _pid in commonPool:
+                if len(np.where(gt[_pid] == 1)[0]) < 1:
+                    continue;
+                pt: Pt = allPt[str(int(_testsetPtid[_pid]))];
+                print(_pid, pt.dem.sab, pt.dem.aYr, pt.dem.aMo, pt.dem.eth)
+                _digList: List[str] = [];
+                for _e in pt.evtList:
+                    if _e.type != EvtClass.Dig:
+                        continue;
+                    _digList.append(_e.cont[0]);
+                print(_digList);
+                print(np.argsort(-yh[_pid]))
+                print(np.where(gt[_pid] == 1)[0])
+                print();
+
         if evalOnly or math.isnan(trainLoss) or math.isnan(valLoss):
             return;
-        if not save:
+        if save is None:
             continue;
-        if mrr > __bestMet:
-            __bestMet = mrr;
-            torch.save(model, f"{modelDir}/{time.time_ns()}-{i + 1}-{mrr}.pt");
+        torch.save(model, f"{save}/{i + 1}.pt");
+        with open(f"{save}/{i + 1}.log", "w") as f:
+            f.write(_msg);
 
