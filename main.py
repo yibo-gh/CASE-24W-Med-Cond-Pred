@@ -236,7 +236,8 @@ def __service_loadDt(tarICD: str,
                             um2Uri: str = "map/ukb2db.pkl",
                             tdbUri: str = "map/drugbankIcdPerDis.pkl",
                             umtUri: str = "map/ukbMedTokenize.pkl",
-                            medPerIcdPkl: str | None = None
+                            medPerIcdPkl: str | None = None,
+                            outPkl: str = "allPt.pkl"
                      ) -> Tuple[
     np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, List[str]], Dict[str, List[str]]
 ]:
@@ -383,7 +384,7 @@ def __service_loadDt(tarICD: str,
     X, xMask, y = __service_getTrainingDt(allPt, dt, ptFilter & icdFilter, umt, medMap=umt, freq=freqMap);
     X, xMask, y, yMask = __service_dtFlatten(X, xMask, y);
     print(f"m::381", yMask.shape)
-    with open("allPt.pkl", "wb") as f:
+    with open(outPkl, "wb") as f:
         pickle.dump(allPt, f);
     return X, xMask, y, yMask, medPerIcdDict, d2 if d2 is not None else __service_contParentIcdMedCount(medPerIcdDict);
 
@@ -582,11 +583,13 @@ def main() -> int:
     icd: str = "E11";
     evalOnly: bool = True;
 
+    __service_loadDtByICD(icd.lower(), "data/1737145582028.pkl", )
+
     if not evalOnly:
         print("m::523 loading embedder")
         ebd: KGEmbed = KGEmbed(
             allPt="data/allPt.pkl",
-            ukb2db="map/ukb2db.pkl",
+            ukb2db="map/ukb2db.umls.pkl",
             db2emd="data/kgEmb2.pkl",
             icd="E11"
         );

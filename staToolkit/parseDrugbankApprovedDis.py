@@ -16,16 +16,18 @@ def __service_fetchPerItemICD(uri: str = "data/drugbank.xml", tarID: Dict[str, i
     counter: int = 0;
     for c in allChild:
         id: str = [n.text for n in c.findall(f"{pref}drugbank-id")][0];
-        if int(id[2:]) < 15602:
-            counter += 1;
-            continue;
+
         print(f"Processing {counter + 1:5d}/{len(allChild)}, {id}", end="")
         try:
             tarID[id];
             indText: str | None = c.find(f"{pref}indication").text;
             assert indText is not None;
+            _out: str = f"{outPref}{id}.json";
+            if os.path.exists(_out):
+                print(". Exists", end="");
+                raise KeyError;
             print(". Fetching demanding item.");
-            getICD(indText, out=f"{outPref}{id}.json");
+            getICD(indText, out=_out);
         except KeyError:
             print(". No need, pass.");
         except AssertionError:
@@ -46,7 +48,7 @@ def __serivce_getUkbUniDB(d: Dict[str, List[str] | None]) -> Dict[str, int]:
 
 
 if __name__ == "__main__":
-    with open("../map/ukb2db.pkl", "rb") as f:
+    with open("../map/ukb2db.umls.pkl", "rb") as f:
         uniDB: Dict[str, List[str] | None] = pickle.load(f);
     __service_fetchPerItemICD(uri="../data/drugbank.xml", tarID=__serivce_getUkbUniDB(uniDB));
     '''with open("dbApprovedICD.pkl", "wb") as f:
