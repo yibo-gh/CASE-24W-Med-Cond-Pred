@@ -126,16 +126,38 @@ def main() -> int:
     return 0;
 
 
-def main_sim() -> int:
+def main_sim(reverse: bool = False) -> int:
     with open("../map/icdPerDB.pkl", "rb") as f:
         d: Dict[str, List[str]] = pickle.load(f);
-    for k in d.keys():
-        d[k] = list(set(d[k]));
-    print(d)
-    with open("../map/icdPerDB.pkl", "wb") as f:
-        pickle.dump(d, f);
+    # for k in d.keys():
+    #    d[k] = list(set(d[k]));
+    # print(d)
+    # with open("../map/icdPerDB.pkl", "wb") as f:
+    #     pickle.dump(d, f);
+    if reverse:
+        _rev: Dict[str, List[str]] = dict();
+        for k in d.keys():
+            if k.__contains__("-"):
+                continue;
+
+            for _icd in d[k]:
+                try:
+                    _rev[_icd].append(k);
+                except KeyError:
+                    _rev[_icd] = [k];
+
+                if len(_icd) < 4:
+                    continue;
+
+                _icd2: str = f"{_icd[:3]}.{_icd[3:]}";
+                try:
+                    _rev[_icd2].append(k);
+                except KeyError:
+                    _rev[_icd2] = [k];
+
+        with open("../map/dbPerIcd.pkl", "wb") as f:
+            pickle.dump(_rev, f);
     return 0;
 
-
 if __name__ == "__main__":
-    main_sim();
+    main_sim(reverse=True);

@@ -101,8 +101,13 @@ def loadIcdDrugMap(pkl: str, icdMap: str = "map/ICD/CUI2ICD10.txt", icdMedMap: s
 def medMatch(icd2cui: Dict[str, str], ukbMed2db: Dict[str, List[str]], tkbDisMedGT: Dict[str, List[str]],
              icd: str, ukbMedCode: str) -> bool:
     try:
+        # print(f"u::104 icd {icd} med code {ukbMedCode} gt {tkbDisMedGT[icd]} tar {ukbMed2db[ukbMedCode]}")
         # print(icd2cui[icd])
-        gt: List[str] = tkbDisMedGT[icd2cui[icd]];
+        # gt: List[str] = tkbDisMedGT[icd2cui[icd]];
+        try:
+            gt: List[str] = tkbDisMedGT[icd];
+        except:
+            gt: List[str] = tkbDisMedGT[icd[:3]];
         # print(gt)
         ukbMed: List[str] | None = ukbMed2db[ukbMedCode];
         # print(ukbMed)
@@ -110,9 +115,11 @@ def medMatch(icd2cui: Dict[str, str], ukbMed2db: Dict[str, List[str]], tkbDisMed
             return False;
         for g in gt:
             if ukbMed.__contains__(g):
+                # print(f"u::104 icd {icd} med code {ukbMedCode} Machted")
                 return True;
     except KeyError:
         return False;
+
     return False;
 
 

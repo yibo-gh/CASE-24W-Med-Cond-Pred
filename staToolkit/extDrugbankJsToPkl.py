@@ -72,7 +72,7 @@ def __service_conv2perDis(d: Dict[str, List[str]]) -> Dict[str, List[str]]:
 
 if __name__ == "__main__":
     d: Dict[str, List[str]] = __service_conv2perDis(__service_loadJs("DbICD"));
-    with open("../map/drugbankIcdPerDis.pkl", "wb") as f:
+    with open("../map/dbPerIcd.pkl.old", "wb") as f:
         pickle.dump(d, f);
 
 

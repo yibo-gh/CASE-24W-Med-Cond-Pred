@@ -48,7 +48,6 @@ class KGEmbed(Embedder):
                 if e.type != EvtClass.Dig or e.cont[0][:3].lower() != self.__icd[:3].lower():
                     continue;
                 for m in e.assoMed:
-                    # print(f"ekg::47 {p} {m}")
                     try:
                         __tmpMedMap[m] += 1;
                     except:

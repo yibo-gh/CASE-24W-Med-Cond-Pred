@@ -72,17 +72,17 @@ def __service_makePtFilter(dt: UKB, ptd: dict[str, bool]) -> np.ndarray:
     return np.array([ptd[pt[0]] for pt in dt["Participant ID"]]);
 
 
-def __serviceF_filterByDrugMatch(allPt: Dict[str, Pt], dt: UKB) -> np.ndarray:
+def __serviceF_filterByDrugMatch(allPt: Dict[str, Pt], dt: UKB, tarICD: str = "E11") -> np.ndarray:
     hasMatchDrug: Dict[str, bool] = dict();
     for pt in allPt.keys():
         hasMatchDrug[pt] = False;
         for et in allPt[pt].evtList:
             # print("m::74", pt, et.time, et.type, et.cont, et.assoMed);
-            if et.type == EvtClass.Dig and et.cont[0][:4] == "E11":
-                print("m::76", et.assoMed);
-            if (et.type == EvtClass.Dig and len(et.assoMed) > 0) or (et.type == EvtClass.Med and not et.time == "1970-01-01" and len(et.cont) > 0):
-                hasMatchDrug[pt] = True;
+            if et.type == EvtClass.Dig and et.cont[0][:3] == tarICD.upper() and len(et.assoMed) == 0:
+                hasMatchDrug[pt] = False;
                 break;
+            elif (et.type == EvtClass.Dig and len(et.assoMed) > 0) or (et.type == EvtClass.Med and not et.time == "1970-01-01" and len(et.cont) > 0):
+                hasMatchDrug[pt] = True;
         # hasMatchDrug[pt] = sum([len(ml.assoMed) for ml in allPt[pt].evtList]) > 0;
     # print(hasMatchDrug)
     return __service_makePtFilter(dt, hasMatchDrug)
@@ -233,14 +233,16 @@ def __service_loadDt(tarICD: str,
                             extTarCode: List[int] = [31, 34, 52, 21000],
                             beeline: str = "bin/spark-3.2.3-bin-hadoop2.7/bin/beeline",
                             i2cUri: str = "map/icd2cui.pkl",
-                            um2Uri: str = "map/ukb2db.pkl",
-                            tdbUri: str = "map/drugbankIcdPerDis.pkl",
+                            um2Uri: str = "map/ukb2db.umls.pkl",
+                            tdbUri: str = "map/dbPerIcd.pkl",
                             umtUri: str = "map/ukbMedTokenize.pkl",
                             medPerIcdPkl: str | None = None,
-                            outPkl: str = "allPt.pkl"
+                            outPkl: str = "data/allPt.pkl"
                      ) -> Tuple[
     np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, List[str]], Dict[str, List[str]]
-]:
+] | None:
+    if os.path.exists(outPkl):
+        return None;
     dt: UKB;
     medPerIcdDict: Dict[str, List[str]];
     d2: Dict[str, List[str]] | None = None;
@@ -254,6 +256,7 @@ def __service_loadDt(tarICD: str,
         with open(ukbPickle, "rb") as f:
             dt = pickle.load(f);
     else:
+        raise NotImplementedError;
         token: str = "MVFsNanigw5fKGJUSbXmMPHSUa7EHR5i";
         _, _, dt, _ = fetchDB(dsID=dsID,
                               keys=tarCol,
@@ -266,10 +269,11 @@ def __service_loadDt(tarICD: str,
 
     with open("map/ukbIcdFreq.pkl", "rb") as f:
         freqMap = pickle.load(f);
-    tdbNew: Dict[str, List[str]] = dict();
-    for k in tdb.keys():
-        tdbNew[i2c[k]] = tdb[k];
-    tdb = tdbNew;
+
+    # tdbNew: Dict[str, List[str]] = dict();
+    # for k in tdb.keys():
+    #     tdbNew[i2c[k]] = tdb[k];
+    # tdb = tdbNew;
     # print(tdb);
     # exit(0)
 
@@ -297,8 +301,9 @@ def __service_loadDt(tarICD: str,
     icd9dtLen: int = len(dt.meta["Date of first in-patient diagnosis - ICD9"]);
 
     allPt: Dict[str, Pt] = dict();
-
     validIcdDict: Dict[str, int] = dict();
+    _disMedMatchCache: Dict[str, Dict[str, bool]] = dict();
+
     for i in range(len(allDig)):
         pt: np.ndarray = allDig[i];
         __accumColNum: int; id: str;
@@ -333,7 +338,18 @@ def __service_loadDt(tarICD: str,
             __dig, __date = dig[j], dates[j];
             ptmList: List[str] = [];
             for m in meds:
-                if medMatch(i2c, um2, tdb, __dig, m):
+                _medMapped: bool = False;
+                try:
+                    _medMapped = _disMedMatchCache[__dig][m];
+                except:
+                    _res: bool = medMatch(i2c, um2, tdb, __dig, m);
+                    try:
+                        _disMedMatchCache[__dig];
+                    except:
+                        _disMedMatchCache[__dig] = dict();
+                    _disMedMatchCache[__dig][m] = _res;
+
+                if _medMapped:
                     ptmList.append(m);
                     __ptMed[m] = 1;
                     if medPerIcdPkl is None:
@@ -344,21 +360,11 @@ def __service_loadDt(tarICD: str,
                             medPerIcdDict[__dig[:3]] = [m];
             # if len(ptmList) > 0:
             if True:
-                # if __dig[:3] == "I25":
-                #     print(id, __dig, ptmList)
                 try:
                     validIcdDict[__dig[:3]] += 1;
                 except:
                     validIcdDict[__dig[:3]] = 1;
-            if __dig[:len(tarICD)].lower() == tarICD:
-                # print("m::292")
-                # for i in range(len(ptmList)):
-                #     ptmList[i] = __service_getMedIdx(medPerIcdDict, __dig[:3], ptmList[i]);
-                allPt[id].newEvt(__date, EvtClass.Dig, [__dig], ptmList);
-            else:
-                # print("m::295")
-                allPt[id].newEvt(__date, EvtClass.Dig, [__dig], []);
-                allPt[id].newEvt(__date, EvtClass.Med, ptmList, []);
+            allPt[id].newEvt(__date, EvtClass.Dig, [__dig], ptmList)
         # for evt in allPt[id].evtList:
         #     print(evt.time, end=" ");
         # print(allPt[id].vectorize())
@@ -377,16 +383,154 @@ def __service_loadDt(tarICD: str,
 
     # for pt in allPt.keys():
     #     print(allPt[pt].id, sum([len(ml) for ml in allPt[pt].vectorize()[1]]));ve
-    ptFilter: np.ndarray = __serviceF_filterByDrugMatch(allPt, dt);
+    ptFilter: np.ndarray = __serviceF_filterByDrugMatch(allPt, dt, tarICD=tarICD.upper());
     print("m::170", np.sum(ptFilter))
     icdFilter: np.ndarray = __serviceF_filterByICDwValidMed(allPt, dt, tarICD);
     print("m::174", np.sum(ptFilter & icdFilter));
     X, xMask, y = __service_getTrainingDt(allPt, dt, ptFilter & icdFilter, umt, medMap=umt, freq=freqMap);
+    print(f"m::387 {len(X)}, {len(xMask)}, {len(y)}")
     X, xMask, y, yMask = __service_dtFlatten(X, xMask, y);
     print(f"m::381", yMask.shape)
+
+    return X, xMask, y, yMask, medPerIcdDict, d2 if d2 is not None else __service_contParentIcdMedCount(medPerIcdDict);
+
+
+def __service_makeAllPt(ukbPickle: str | None = None,
+                        dsID: str = "record-GxF1x2QJbyfKGbP5yY9JyVZ1",
+                        tarCol: List[str] = ["ICD", "Medication", "date"],
+                        extTarCode: List[int] = [31, 34, 52, 21000],
+                        beeline: str = "bin/spark-3.2.3-bin-hadoop2.7/bin/beeline",
+                        i2cUri: str = "map/icd2cui.pkl",
+                        um2Uri: str = "map/ukb2db.umls.pkl",
+                        tdbUri: str = "map/dbPerIcd.pkl",
+                        umtUri: str = "map/ukbMedTokenize.pkl",
+                        medPerIcdPkl: str | None = None,
+                        outPkl: str = "data/allPt.pkl"
+                        ) -> None:
+    if os.path.exists(outPkl):
+        return None;
+    dt: UKB;
+    medPerIcdDict: Dict[str, List[str]];
+    d2: Dict[str, List[str]] | None = None;
+    if medPerIcdPkl is None:
+        medPerIcdDict = dict();
+    else:
+        with open(medPerIcdPkl, "rb") as f:
+            medPerIcdDict, d2 = pickle.load(f);
+
+    if ukbPickle is not None and os.path.exists(ukbPickle):
+        with open(ukbPickle, "rb") as f:
+            dt = pickle.load(f);
+    else:
+        raise NotImplementedError;
+        token: str = "MVFsNanigw5fKGJUSbXmMPHSUa7EHR5i";
+        _, _, dt, _ = fetchDB(dsID=dsID,
+                              keys=tarCol,
+                              db=f"{token}__project-GxBzxGQJqvQ8XgpxffxXQf13",
+                              beeline=beeline,
+                              colCode=extTarCode);
+
+    i2c, um2, tdb, umt = loadCoreMap(i2cUri, um2Uri, tdbUri, umtUri);
+    freqMap: Dict[str, float];
+
+    with open("map/ukbIcdFreq.pkl", "rb") as f:
+        freqMap = pickle.load(f);
+
+    ptMeds: np.ndarray = dt["Treatment/medication code"];
+
+    allDig: np.ndarray = np.concatenate(
+        (
+            dt["Participant ID"],
+            dt[getColNameByFieldID(31)][:, np.newaxis],
+            dt[getColNameByFieldID(34)][:, np.newaxis],
+            dt[getColNameByFieldID(52)][:, np.newaxis],
+            dt["Ethnic background"],
+            # dt["Diagnoses - main ICD10"],
+            # dt["Date of first in-patient diagnosis - main ICD10"]
+            dt["Diagnoses - ICD10"],  # All ICD 10
+            dt["Date of first in-patient diagnosis - ICD10"],  # Date of all ICD 10
+            dt["Diagnoses - ICD9"],  # All ICD 9
+            dt["Date of first in-patient diagnosis - ICD9"]   # Date of all ICD 9
+        ), axis=1);
+    # print(allDig.shape)
+    # print(allDig)
+    icd10dtLen: int = len(dt.meta["Date of first in-patient diagnosis - ICD10"]);
+    icd9dtLen: int = len(dt.meta["Date of first in-patient diagnosis - ICD9"]);
+
+    allPt: Dict[str, Pt] = dict();
+    validIcdDict: Dict[str, int] = dict();
+    _disMedMatchCache: Dict[str, Dict[str, bool]] = dict();
+
+    for i in range(len(allDig)):
+        pt: np.ndarray = allDig[i];
+        __accumColNum: int; id: str;
+        __accumColNum, id = __service_dbParseControl(pt, dtype=str);
+        sex: int;
+        __accumColNum, sex = __service_dbParseControl(pt, dtype=int, accum=__accumColNum);
+        yob: int;
+        __accumColNum, yob = __service_dbParseControl(pt, dtype=int, accum=__accumColNum);
+        mob: int;
+        __accumColNum, mob = __service_dbParseControl(pt, dtype=int, accum=__accumColNum);
+        ethList: str;
+        __accumColNum, eth = __service_dbParseControl(pt, dtype=list, accum=__accumColNum, tarLen=4, dtProc=[__service_getNotNullDates, __service_simpEth]);
+        icdx: List[str];
+        __accumColNum, icdx = __service_dbParseControl(pt, dtype=list, accum=__accumColNum, dtProc=__service_getNotNullDates);
+        icdxd: List[str];
+        __accumColNum, icdxd = __service_dbParseControl(pt, dtype=list, accum=__accumColNum, tarLen=icd10dtLen, dtProc=__service_getNotNullDates);
+        icd9: List[str];
+        __accumColNum, icd9 = __service_dbParseControl(pt, dtype=list, accum=__accumColNum, dtProc=__service_getNotNullDates);
+        icd9d: List[str];
+        __accumColNum, icd9d = __service_dbParseControl(pt, dtype=list, accum=__accumColNum, tarLen=icd9dtLen, dtProc=__service_getNotNullDates);
+        meds: List[str] = __service_getNotNullDates(ptMeds[i].tolist());
+
+        assert len(icdx) == len(icdxd) and len(icd9) == len(icd9d);
+
+        allPt[id] = Pt(id, PtDemo(SexAtBirth(sex), mob, yob, int(eth)));
+        dig: List[str] = icd9 + icdx;
+        dates: List[str] = icd9d+ icdxd;
+        __ptMed: dict[str, int] = dict();
+        for m in meds:
+            __ptMed[m] = 0;
+        for j in range(len(dig)):
+            __dig, __date = dig[j], dates[j];
+            ptmList: List[str] = [];
+            for m in meds:
+                _medMapped: bool = False;
+                try:
+                    _medMapped = _disMedMatchCache[__dig][m];
+                except:
+                    _res: bool = medMatch(i2c, um2, tdb, __dig, m);
+                    try:
+                        _disMedMatchCache[__dig];
+                    except:
+                        _disMedMatchCache[__dig] = dict();
+                    _disMedMatchCache[__dig][m] = _res;
+
+                if _medMapped:
+                    ptmList.append(m);
+                    __ptMed[m] = 1;
+                    if medPerIcdPkl is None:
+                        try:
+                            if not medPerIcdDict[__dig[:3]].__contains__(m):
+                                medPerIcdDict[__dig[:3]].append(m);
+                        except KeyError:
+                            medPerIcdDict[__dig[:3]] = [m];
+            # if len(ptmList) > 0:
+            if True:
+                try:
+                    validIcdDict[__dig[:3]] += 1;
+                except:
+                    validIcdDict[__dig[:3]] = 1;
+            allPt[id].newEvt(__date, EvtClass.Dig, [__dig], ptmList)
+
+        noUseMed: List[str] = [];
+        for m in __ptMed.keys():
+            if __ptMed[m] == 0:
+                noUseMed.append(m);
+        allPt[id].newEvt("1970-01-01", EvtClass.Med, noUseMed, []);
+
     with open(outPkl, "wb") as f:
         pickle.dump(allPt, f);
-    return X, xMask, y, yMask, medPerIcdDict, d2 if d2 is not None else __service_contParentIcdMedCount(medPerIcdDict);
 
 
 def __service_contParentIcdMedCount(mpid: Dict[str, List[str]]) -> Dict[str, List[str]]:
@@ -581,9 +725,10 @@ def main() -> int:
     os.environ["CUDA_LAUNCH_BLOCKING"] = "1";
     batchMaxVec: int = 512;
     icd: str = "E11";
-    evalOnly: bool = True;
+    evalOnly: bool = False;
 
-    __service_loadDtByICD(icd.lower(), "data/1737145582028.pkl", )
+    # __service_loadDtByICD(icd.lower(), "data/1737145582028.pkl", "")
+    __service_makeAllPt(ukbPickle="data/1737145582028.pkl");
 
     if not evalOnly:
         print("m::523 loading embedder")

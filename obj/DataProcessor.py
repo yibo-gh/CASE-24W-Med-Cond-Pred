@@ -318,7 +318,7 @@ class DataProcessor:
         #     ]
         # ] = [self.__service_makePtMatrix(__pm[0], __pm[1]) for __pm in allDt]
         # return self.__service_padDt(__allPtMatrix)
-        ret = self.__service_padDt([self.__service_makePtMatrix(__pm[0], __pm[1]) for __pm in allDt]);
+        # ret = self.__service_padDt([self.__service_makePtMatrix(__pm[0], __pm[1]) for __pm in allDt]);
         # ret[0][:, 0] /= self.__maxPtId;
         return self.__service_dtBatch([self.__service_makePtMatrix(__pm[0], __pm[1]) for __pm in allDt]);
         # return ret;
