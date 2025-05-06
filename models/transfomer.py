@@ -12,7 +12,7 @@ import torch.nn as nn;
 from torchmetrics.functional import f1_score;
 
 from obj.DataProcessor import DataProcessor;
-from util.util import npF1, auroc, auprc, mrr, histk, execCmd, plot_confidence_heatmap, plot_sorted_metrics, detect_metric_outliers;
+from util.util import npF1, auroc, auprc, mrr, histk, execCmd, plot_confidence_heatmap, plot_sorted_metrics, detect_metric_outliers, per_class_precision_recall;
 
 class PtDS(Dataset):
 
@@ -147,6 +147,8 @@ def evaluate(model: nn.Module,
         # f1: torch.Tensor = f1_score(res[ym == 1], y[ym == 1], task="multiclass", num_classes=res.size(2));
         com: torch.Tensor = res[ym == 1] == y[ym == 1];
         total: int = int(com.view(-1).size(0));
+    import sys;
+    np.set_printoptions(threshold=sys.maxsize)
     return loss.item(), total, int(torch.sum(com)), res[ym == 1], y[ym == 1];
 
 
@@ -291,7 +293,9 @@ def iter(model: nn.Module,
          mFeature: int,
          dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
          save: str | None = None,
-         evalOnly: bool = False) -> None:
+         evalOnly: bool = False,
+         printPtInfo: bool = False,
+         evalCfFilter: np.ndarray | None = None) -> None:
 
     __bestMet: float = 0;
     if save is not None and not os.path.exists(save):
@@ -323,7 +327,7 @@ def iter(model: nn.Module,
             sche.step(int(round(valiLoss)));
 
         valLoss: float; vTotal: int; vCorr: int;
-        gt, yh, valLoss, vTotal, vCorr, f1, roc, prc, mrr, his5, his10 = __service_iterEval(
+        gt, yh, valLoss, vTotal, vCorr, f1, roc, prc, _mrr, his5, his10 = __service_iterEval(
             model=model,
             dp=dp,
             loss_fn=loss_fn,
@@ -343,9 +347,9 @@ def iter(model: nn.Module,
                     f"F-1: {f1 * 100:5.2f}%, " +
                     f"AUROC {roc * 100:5.2f}%, " +
                     f"AUPRC {prc * 100:5.2f}%, " +
-                    f"MRR {mrr * 100:5.2f}%, " +
-                    f"Hist-5 {his5 * 100:5.2f}%, " +
-                    f"Hist-10 {his10 * 100:5.2f}%");
+                    f"MRR {_mrr * 100:5.2f}%, " +
+                    f"Hits-5 {his5 * 100:5.2f}%, " +
+                    f"Hits-10 {his10 * 100:5.2f}%");
             print(_msg);
         else:
             _msg = (f"Ep {i + 1:4d}/{epoch} - " +
@@ -354,10 +358,39 @@ def iter(model: nn.Module,
                     f"F-1: {f1 * 100:5.2f}%, " +
                     f"AUROC {roc * 100:5.2f}%, " +
                     f"AUPRC {prc * 100:5.2f}%, " +
-                    f"MRR {mrr * 100:5.2f}%, " +
-                    f"Hist-5 {his5 * 100:5.2f}%, " +
-                    f"Hist-10 {his10 * 100:5.2f}%");
+                    f"MRR {_mrr * 100:5.2f}%, "
+                    f"Hits-3 {histk(gt, yh, 3) * 100:5.2f}%, " +
+                    f"Hits-5 {his5 * 100:5.2f}%, " +
+                    f"Hits-10 {his10 * 100:5.2f}%");
             print(_msg);
+            if evalCfFilter is not None:
+                _gtCF: np.ndarray = gt[:, evalCfFilter];
+                _yhCF: np.ndarray = yh[:, evalCfFilter];
+                print("t::369", gt.shape, yh.shape);
+                # print("t::370", _gtCF.shape, _yhCF.shape);
+                print(f"t::371 {_gtCF[np.sum(_gtCF, axis=1) != 0].shape}")
+                _cff1: float = float(npF1(_gtCF, _yhCF));
+                _cfroc: float = float(auroc(_gtCF, _yhCF)[1]);
+                _cfprc: float = float(auprc(_gtCF, _yhCF)[1]);
+                _cfmrr: float = float(mrr(_gtCF, _yhCF));
+                _cfh3: float = float(histk(_gtCF, _yhCF, 3));
+                _cfh5: float = float(histk(_gtCF, _yhCF, 5));
+                _cfh10: float = float(histk(_gtCF, _yhCF, 10));
+                print(
+                    f"Filtered Eval F-1: {_cff1 * 100:5.2f}%, "
+                    f"AUROC {_cfroc * 100:5.2f}%, "
+                    f"AUPRC {_cfprc * 100:5.2f}%, "
+                    f"MRR {_cfmrr * 100:5.2f}%, "
+                    f"Hits-3 {_cfh3 * 100:5.2f}%, "
+                    f"Hits-5 {_cfh5 * 100:5.2f}%, "
+                    f"Hits-10 {_cfh10 * 100:5.2f}%"
+                )
+
+                _pcPre, _pcRec = per_class_precision_recall(_gtCF, _yhCF);
+                print("Class\tPrecision\tRecall")
+                for _filterIdx in range(len(evalCfFilter)):
+                    print(f"{evalCfFilter[_filterIdx]}\t\t{_pcPre[_filterIdx]:.2f}\t\t{_pcRec[_filterIdx]:.2f}")
+
             # plot_confidence_heatmap(yh, gt, fname="heatmap.png");
             _allRoc, _ = auroc(gt, yh);
             _allPrc, _ = auprc(gt, yh);
@@ -365,11 +398,12 @@ def iter(model: nn.Module,
 
             rocOl: np.ndarray = detect_metric_outliers(_allRoc)[0];
             prcOl: np.ndarray = detect_metric_outliers(_allPrc, z_thresh=1.5)[0];
-            print(f"t::367 roc {np.quantile(_allRoc, [0, .25, .5, .75, .9, .95])}")
-            print(np.where(_allRoc == np.min(_allRoc))[0]);
-            # print(f"t::368 {rocOl}");
-            print(f"t::369 prc {np.quantile(_allPrc, [0, .25, .5, .75, .9, .95])}")
-            # print(f"t::370 {prcOl}");
+            if printPtInfo:
+                print(f"t::367 roc {np.quantile(_allRoc, [0, .25, .5, .75, .9, .95])}")
+                print(np.where(_allRoc == np.min(_allRoc))[0]);
+                # print(f"t::368 {rocOl}");
+                print(f"t::369 prc {np.quantile(_allPrc, [0, .25, .5, .75, .9, .95])}")
+                # print(f"t::370 {prcOl}");
 
             _testsetPtid: np.ndarray = np.zeros(0);
             for j in range(dp.getBatchCount(2)):
@@ -393,23 +427,24 @@ def iter(model: nn.Module,
             # print(np.argsort(-yh[1749]))
             # print(np.where(gt[1749] == 1)[0])
 
-            from obj.pt import Pt, EvtClass;
-            with open("data/allPt.pkl", "rb") as f:
-                allPt: Dict[str, Pt] = pickle.load(f);
-            for _pid in commonPool:
-                if len(np.where(gt[_pid] == 1)[0]) < 1:
-                    continue;
-                pt: Pt = allPt[str(int(_testsetPtid[_pid]))];
-                print(_pid, pt.dem.sab, pt.dem.aYr, pt.dem.aMo, pt.dem.eth)
-                _digList: List[str] = [];
-                for _e in pt.evtList:
-                    if _e.type != EvtClass.Dig:
+            if printPtInfo:
+                from obj.pt import Pt, EvtClass;
+                with open("data/allPt.pkl", "rb") as f:
+                    allPt: Dict[str, Pt] = pickle.load(f);
+                for _pid in commonPool:
+                    if len(np.where(gt[_pid] == 1)[0]) < 1:
                         continue;
-                    _digList.append(_e.cont[0]);
-                print(_digList);
-                print(np.argsort(-yh[_pid]))
-                print(np.where(gt[_pid] == 1)[0])
-                print();
+                    pt: Pt = allPt[str(int(_testsetPtid[_pid]))];
+                    print(_pid, pt.dem.sab, pt.dem.aYr, pt.dem.aMo, pt.dem.eth)
+                    _digList: List[str] = [];
+                    for _e in pt.evtList:
+                        if _e.type != EvtClass.Dig:
+                            continue;
+                        _digList.append(_e.cont[0]);
+                    print(_digList);
+                    print(np.argsort(-yh[_pid]))
+                    print(np.where(gt[_pid] == 1)[0])
+                    print();
 
         if evalOnly or math.isnan(trainLoss) or math.isnan(valLoss):
             return;

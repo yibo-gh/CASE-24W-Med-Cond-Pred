@@ -499,7 +499,7 @@ def __service_makeAllPt(ukbPickle: str | None = None,
                 try:
                     _medMapped = _disMedMatchCache[__dig][m];
                 except:
-                    _res: bool = medMatch(i2c, um2, tdb, __dig, m);
+                    _res: bool = medMatch(i2c, um2, tdb, __dig, m) or medMatch(i2c, um2, tdb, __dig[:3], m);
                     try:
                         _disMedMatchCache[__dig];
                     except:
@@ -637,21 +637,15 @@ def __service_privateEval(dp: DataProcessor, pt: str,
     __recIcdMedCount: int = dp.getYGtClassLen();
     __xm = dp[0, True][1];
     maxXCol: int = __xm.shape[-1];
-    dModel: int = (int(maxXCol / nhead) + (1 if maxXCol % nhead != 0 else 0)) * nhead;
 
-    '''model: MedTrans = MedTrans(
-        maxXCol,
-        __recIcdMedCount,
-        dModel,
-        nhead,
-        hiddenLayers,
-        maxVecSize=maxVec,
-        batched=True
-    );
-    model.setMedMat(dp.getMedMat());
-    model.load_state_dict(torch.load(pt, weights_only=True));'''
-
-    model: MedTrans = torch.load(pt);
+    print(f"m::641 {dp.getDbi()}")
+    _cf: List[int] = [];
+    for _kdp in dp.getDbi().keys():
+        if _kdp != "DB00331" and _kdp != "DB00030":
+            _cf.append(dp.getDbi()[_kdp]);
+    classFilter: np.ndarray = np.array([_i for _i in range(len(list(set(dp.getDbi().keys()))))])[np.array(_cf)];
+    print(f"m::647 {classFilter}")
+    model: MedTrans = torch.load(pt, weights_only=False);
     # model.setMedMat(dp.getMedMat());
     dev: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu");
     model.to(dev);
@@ -670,7 +664,8 @@ def __service_privateEval(dp: DataProcessor, pt: str,
          mFeature = dModel,
          epoch=250,
          dev=dev,
-         evalOnly=True);
+         evalOnly=True,
+         evalCfFilter=classFilter);
     return 0;
 
 
@@ -710,6 +705,7 @@ def __service_privateTrain(dp: DataProcessor,
     model.to(dev);
 
     _tarDir: str = f"modelOut/{time.time_ns()}";
+    # _tarDir = None;
     iter(model,
          dp,
          lossFn, opt, scheduler,
@@ -725,7 +721,7 @@ def main() -> int:
     os.environ["CUDA_LAUNCH_BLOCKING"] = "1";
     batchMaxVec: int = 512;
     icd: str = "E11";
-    evalOnly: bool = False;
+    evalOnly: bool = True;
 
     # __service_loadDtByICD(icd.lower(), "data/1737145582028.pkl", "")
     __service_makeAllPt(ukbPickle="data/1737145582028.pkl");
@@ -754,8 +750,10 @@ def main() -> int:
         return 0;
     else:
         print("m::608 Loading eval")
-        __service_privateEval(pt="modelOut/1744601857317117628/10.pt",
-                              dp=pickle.load(open("modelOut/1744601857317117628/dp.pkl", "rb")),
+        _outPref: str = "modelOut/1746502215277327802";
+        __service_privateEval(pt=f"{_outPref}/56.pt",
+        # __service_privateEval(pt=f"{_outPref}/76.pt",
+                              dp=pickle.load(open(f"{_outPref}/dp.pkl", "rb")),
                               maxVec=256, nhead=4);
     return 0;
 

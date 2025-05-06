@@ -180,8 +180,8 @@ def npF1(gt: np.ndarray, yh: np.ndarray) -> float:
     fp: int = np.sum((gt == 0) & (yh == 1));
     fn: int = np.sum((gt == 1) & (yh == 0));
 
-    pr: float = tp / (tp + fp);
-    re: float = tp / (tp + fn);
+    pr: float = tp / (tp + fp + 1e-5);
+    re: float = tp / (tp + fn + 1e-5);
     return 2 * pr * re / (pr + re + 1e-5);
 
 
@@ -191,9 +191,11 @@ def __service_npFlatten(dt: np.ndarray) -> np.ndarray:
     return np.concatenate([dt[i] for i in range(len(dt))]);
 
 
-def auroc(gt: np.ndarray, yh: np.ndarray) -> float:
+def auroc(gt: np.ndarray, yh: np.ndarray) -> Tuple[List[float], float]:
     aucs = []
     for _gt, pred in zip(gt, yh):
+        if np.sum(_gt) == 0:
+            continue;
         pos_idx = np.where(_gt == 1)[0]
         neg_idx = np.where(_gt == 0)[0]
         # 如果没有正例或负例，则跳过
@@ -208,9 +210,11 @@ def auroc(gt: np.ndarray, yh: np.ndarray) -> float:
     # print(f"u::200 roc {np.quantile(aucs, [0, .25, .5, .75, .9, .95])}")
     return aucs, float(np.nanmean(aucs)) if aucs else float('nan')
 
-def auprc(gt: np.ndarray, yh: np.ndarray) -> float:
+def auprc(gt: np.ndarray, yh: np.ndarray) -> Tuple[List[float], float]:
     aps = []
     for _gt, pred in zip(gt, yh):
+        if np.sum(_gt) == 0:
+            continue;
         order = np.argsort(-pred)  # 降序排列预测得分的索引
         sorted_gt = _gt[order]
         # 累计求和，得到每个位置上的 TP 数量
@@ -231,6 +235,9 @@ def mrr(gt: np.ndarray, yh: np.ndarray) -> float:
         order = np.argsort(-pred)  # 降序排序
         found = False
         for rank, idx in enumerate(order, start=1):
+            if np.sum(_gt) == 0:
+                found = True;
+                break;
             if _gt[idx] == 1:
                 mrrs.append(1.0 / rank)
                 found = True
@@ -243,8 +250,10 @@ def mrr(gt: np.ndarray, yh: np.ndarray) -> float:
 def histk(gt: np.ndarray, yh: np.ndarray, k: int) -> float:
     hits = []
     for _gt, pred in zip(gt, yh):
+        if np.sum(_gt) == 0:
+            continue;
         topk_indices = np.argsort(-pred)[:k]
-        hits.append(np.sum(_gt[topk_indices]))
+        hits.append(1 if np.sum(_gt[topk_indices]) > 0 else 0);
     return float(np.mean(hits))
 
 
@@ -323,6 +332,33 @@ def detect_metric_outliers(metric_values: np.ndarray, z_thresh: float = 2.0):
     z_scores = (metric_values - mean_val) / std_val
     outlier_indices = np.where(np.abs(z_scores) > z_thresh)[0]
     return outlier_indices, z_scores
+
+
+def per_class_precision_recall(gt: np.ndarray, yh: np.ndarray):
+    assert gt.shape == yh.shape and len(gt.shape) == 2
+    N, C = gt.shape
+    yh_bin = np.zeros_like(yh, dtype=int)
+
+    # 根据每个样本的 ground truth 数量，从预测中取对应 top-k 个作为正类
+    for i in range(N):
+        k = int(gt[i].sum())
+        if k == 0:
+            continue  # 无正样本，跳过
+        topk_indices = np.argsort(-yh[i])[:k]
+        yh_bin[i, topk_indices] = 1
+
+    precision = np.zeros(C)
+    recall = np.zeros(C)
+
+    for i in range(C):
+        tp = np.sum((gt[:, i] == 1) & (yh_bin[:, i] == 1))
+        fp = np.sum((gt[:, i] == 0) & (yh_bin[:, i] == 1))
+        fn = np.sum((gt[:, i] == 1) & (yh_bin[:, i] == 0))
+
+        precision[i] = tp / (tp + fp + 1e-5)
+        recall[i] = tp / (tp + fn + 1e-5)
+
+    return precision, recall
 
 
 if __name__ == "__main__":

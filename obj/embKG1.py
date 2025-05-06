@@ -25,6 +25,7 @@ class KGEmbed(Embedder):
     __validYGtLen: int;
     __icd: str;
     cwv: np.ndarray;
+    dbIdx: Dict[str, int] | None;
 
     def __init__(self, ukb2db: str, db2emd: str, allPt: str, icd: str) -> None:
         super().__init__(ukb2db=ukb2db, db2emd=db2emd, allPt=allPt);
@@ -60,6 +61,7 @@ class KGEmbed(Embedder):
         __allDBid: List[str] = []
         for am in __medList:
             __allDBid += self.__ukbDbMap[am];
+            print(f"ek1::63 {am, self.__ukbDbMap[am]}")
         __allDBid = list(set(__allDBid));
         __allDBidIdx: Dict[str, int] = dict();
         for i in range(len(__allDBid)):
@@ -74,6 +76,9 @@ class KGEmbed(Embedder):
         for ml in __medList:
             self.__tarYCodeMap[ml] = [__allDBidIdx[__uid] for __uid in self.__ukbDbMap[ml]];
         self.__validYGtLen = len(__allDBidIdx);
+        self.dbIdx = __allDBidIdx;
+        print("ek1::80", __allDBidIdx)
+        # exit(0)
 
         __totalQualifingPt: int = 0;
         for p in list(allPt.keys()):

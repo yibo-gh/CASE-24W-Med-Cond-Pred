@@ -11,16 +11,19 @@ class Embedder:
 
     medMat: np.ndarray | None;
     cwv: np.ndarray | None;
+    dbIdx: Dict[str, int] | None;
 
     def ukb2dbMappingCorrection(self, d:Dict[str, List[str]]) -> Dict[str, List[str]]:
-        d["1140888646"] = d["1140888646"][:1];
-        d["1140860904"] = d["1140860904"][:1];
+        # d["1140888646"] = d["1140888646"][:1];
+        # d["1140860904"] = d["1140860904"][:1];
+        d["1141189090"].append("DB00331");
         return d;
 
     def __init__(self, ukb2db: str, db2emd: str, allPt: str) -> None:
         super().__init__();
         self.medMat = None;
         self.cwv = None;
+        self.dbIdx = None;
 
     def dtBatching(self, icd: str) -> Tuple[Dict[str, int], Dict[str, List[np.ndarray]]]:
         raise NotImplementedError;

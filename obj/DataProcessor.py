@@ -21,6 +21,9 @@ class PtIterable():
     __emb: Embedder;
     cwv: np.ndarray;
 
+    def getDbi(self) -> Dict[str, int]:
+        return self.__emb.dbIdx;
+
     def getMedMat(self) -> np.ndarray:
         return self.__emb.medMat;
 
@@ -132,6 +135,9 @@ class DataProcessor:
     __medSeqMap: dict[str, int];
     __maxPtId: int;
     cwv: np.ndarray;
+
+    def getDbi(self) -> Dict[str, int]:
+        return self.__pi.getDbi();
 
     def getMedMat(self) -> np.ndarray:
         return self.__pi.getMedMat();
@@ -256,7 +262,7 @@ class DataProcessor:
         np.ndarray,  # X Mask One-hot
         np.ndarray,  # Y GT
         np.ndarray,  # Y Mask
-        np.ndarray  # y Mask One-hot
+        np.ndarray   # y Mask One-hot
     ]:
         maxShape: List[int] = [0, 0];
         for x, _, _, _, _, _ in dt:
