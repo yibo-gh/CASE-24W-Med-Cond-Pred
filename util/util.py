@@ -176,9 +176,27 @@ def npF1Torch(gt: np.ndarray, gh: np.ndarray) -> float:
 
 
 def npF1(gt: np.ndarray, yh: np.ndarray) -> float:
-    tp: int = np.sum((gt == 1) & (yh == 1));
-    fp: int = np.sum((gt == 0) & (yh == 1));
-    fn: int = np.sum((gt == 1) & (yh == 0));
+    assert gt.shape == yh.shape and len(gt.shape) == 2
+    N, C = gt.shape
+    yh_bin = np.zeros_like(yh, dtype=int)
+
+    # 根据每个样本的 ground truth 数量，从预测中取对应 top-k 个作为正类
+    for i in range(N):
+        k = int(gt[i].sum())
+        if k == 0:
+            continue  # 无正样本，跳过
+        topk_indices = np.argsort(-yh[i])[:k]
+        yh_bin[i, topk_indices] = 1
+
+    tp: float = 0;
+    fp: float = 0;
+    fn: float = 0;
+
+    for i in range(C):
+        tp += np.sum((gt[:, i] == 1) & (yh_bin[:, i] == 1))
+        fp += np.sum((gt[:, i] == 0) & (yh_bin[:, i] == 1))
+        fn += np.sum((gt[:, i] == 1) & (yh_bin[:, i] == 0))
+
 
     pr: float = tp / (tp + fp + 1e-5);
     re: float = tp / (tp + fn + 1e-5);
